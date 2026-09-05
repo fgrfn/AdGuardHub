@@ -369,16 +369,31 @@ wait_for_service() {
     die "the hub was installed but never answered on port ${PORT}. Its own log is above; the full one is: journalctl -u adguardhub -n 100"
 }
 
+# Whether the hub is still waiting for its admin account to be created.
+#
+# The hub knows, so the installer asks it rather than guessing. Guessing from
+# "did $PREFIX exist before this run" is wrong in both directions: a first
+# install can start from a data directory restored out of a backup, and an
+# upgrade can land on a hub nobody ever set up.
+needs_admin_account() {
+    curl -fsS "http://127.0.0.1:${PORT}/api/auth/state" 2>/dev/null |
+        grep -q '"setup_required"[[:space:]]*:[[:space:]]*true'
+}
+
 report() {
     version="$1"
     address=$(hostname -I 2>/dev/null | awk '{print $1}')
     [ -n "$address" ] || address="this-host"
+    url="http://${address}/"
+    [ "$PORT" = "80" ] || url="http://${address}:${PORT}/"
     printf '\n'
     say "AdGuardHub ${version} is running."
-    if [ "$PORT" = "80" ]; then
-        note "Open http://${address}/ and create the admin account."
+    # An upgrade ends here too, and telling someone who has run this hub for
+    # months to go and create the admin account is a small lie every time.
+    if needs_admin_account; then
+        note "Open ${url} and create the admin account."
     else
-        note "Open http://${address}:${PORT}/ and create the admin account."
+        note "Open ${url} and sign in."
     fi
     note ""
     note "Data:     $DATA_DIR   (back this up — it holds the database and the encryption key)"
