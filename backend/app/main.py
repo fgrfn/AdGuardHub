@@ -36,6 +36,7 @@ from .models import User
 from .runtime import using_ephemeral_secret
 from .security import SecretKeyError, hash_password, verify_password
 from .services import hubsettings
+from .services.events import bus
 from .services.querylog import querylog_worker
 from .services.reconcile import reconcile_worker
 from .services.sync import retry_worker
@@ -126,6 +127,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         stop.set()
+        # Before the workers: an open event stream is a request uvicorn waits
+        # for, and one that never ends on its own holds the whole shutdown until
+        # systemd loses patience. See EventBus.close.
+        await bus.close()
         for worker in workers:
             worker.cancel()
         await asyncio.gather(*workers, return_exceptions=True)
