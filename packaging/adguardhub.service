@@ -24,9 +24,17 @@ Environment=ADGUARDHUB_INSTALL_METHOD=native
 # The dash means "carry on if it does not exist". This is where your own
 # settings go — ADGUARDHUB_SECRET_KEY, log level, timers.
 EnvironmentFile=-/etc/adguardhub/adguardhub.env
-ExecStart=@PREFIX@/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port @PORT@
+# --timeout-graceful-shutdown, because uvicorn's default is to wait forever for
+# the requests still in flight, and an event stream is a request that does not
+# end on its own. The hub closes its streams on shutdown (see EventBus.close),
+# so this should never be reached; it is here so that a request nobody thought
+# of costs five seconds rather than the ninety systemd allows before SIGKILL.
+ExecStart=@PREFIX@/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port @PORT@ --timeout-graceful-shutdown 5
 Restart=on-failure
 RestartSec=5
+# Half a minute is plenty for a process that should stop in milliseconds, and it
+# turns "the upgrade hung" into "the upgrade took a moment".
+TimeoutStopSec=30
 
 # The hub holds the admin credentials of your DNS infrastructure, so it runs
 # with as little as it can. It needs exactly two things beyond a normal user:
