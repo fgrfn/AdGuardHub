@@ -5,7 +5,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from app.adapters.adguard import AdGuardAdapter
+from app.adapters.adguard import LIST_FETCH_TIMEOUT, AdGuardAdapter
 from app.adapters.base import AdapterError, RemoteFilterList
 from app.adapters.session import SessionStore
 
@@ -475,3 +475,93 @@ async def test_query_log_and_stats_config_write_to_the_update_path() -> None:
         ("PUT", "/control/querylog/config/update"),
         ("PUT", "/control/stats/config/update"),
     ]
+
+
+# --------------------------------------------------------------------------
+# Adding a subscription is not an ordinary request
+# --------------------------------------------------------------------------
+
+
+async def test_adding_a_list_waits_far_longer_than_a_status_check() -> None:
+    """AdGuard downloads and parses the list before it answers `add_url`.
+
+    A threat-intelligence feed is millions of rules, which is a minute or more
+    of work on a small host — all of it before the first byte of the response.
+    Held to the ten seconds that decide whether a node is alive, adding such a
+    list simply cannot succeed, and a hub that keeps trying reports the same
+    read timeout every five minutes forever.
+    """
+    seen: dict[str, float | None] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/control/filtering/status":
+            return httpx.Response(200, json={"filters": [], "whitelist_filters": []})
+        seen[request.url.path] = request.extensions.get("timeout", {}).get("read")
+        return httpx.Response(200, json={})
+
+    await make_adapter(login_ok(handler), timeout=10.0).push_filter_lists(
+        [RemoteFilterList("Huge", "https://example.com/huge.txt", True, "blocklist")]
+    )
+
+    assert seen["/control/filtering/add_url"] == LIST_FETCH_TIMEOUT
+    assert LIST_FETCH_TIMEOUT > 10.0
+
+
+async def test_one_list_that_times_out_does_not_abandon_the_other_nineteen() -> None:
+    """The failure that made this unrecoverable.
+
+    Stopping at the first error meant a node missing twenty lists failed on the
+    first, skipped the rest, and began again at the same first list on the next
+    run — never getting one list further, for as long as the hub ran.
+    """
+    added: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/control/filtering/status":
+            return httpx.Response(200, json={"filters": [], "whitelist_filters": []})
+        import json
+
+        url = json.loads(request.content)["url"]
+        if url.endswith("first.txt"):
+            raise httpx.ReadTimeout("", request=request)
+        added.append(url)
+        return httpx.Response(200, json={})
+
+    desired = [
+        RemoteFilterList("First", "https://example.com/first.txt", True, "blocklist"),
+        *[
+            RemoteFilterList(f"L{n}", f"https://example.com/{n}.txt", True, "blocklist")
+            for n in range(19)
+        ],
+    ]
+
+    with pytest.raises(AdapterError) as caught:
+        await make_adapter(login_ok(handler)).push_filter_lists(desired)
+
+    # The nineteen that could be applied were applied...
+    assert len(added) == 19
+    # ...and the one that could not is named, with its reason.
+    assert "1 of 20" in str(caught.value)
+    assert "first.txt" in str(caught.value)
+    assert "read timeout" in str(caught.value)
+
+
+async def test_many_failures_are_summarised_rather_than_listed_in_full() -> None:
+    """Twenty failures must not become twenty error messages in one status field."""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/control/filtering/status":
+            return httpx.Response(200, json={"filters": [], "whitelist_filters": []})
+        raise httpx.ReadTimeout("", request=request)
+
+    desired = [
+        RemoteFilterList(f"L{n}", f"https://example.com/{n}.txt", True, "blocklist")
+        for n in range(20)
+    ]
+
+    with pytest.raises(AdapterError) as caught:
+        await make_adapter(login_ok(handler)).push_filter_lists(desired)
+
+    message = str(caught.value)
+    assert "20 of 20" in message
+    assert "and 17 more" in message

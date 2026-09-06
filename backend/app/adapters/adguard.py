@@ -57,6 +57,25 @@ def describe_transport_error(exc: Exception, timeout: float | None = None) -> st
 
 
 
+#: How long to wait for a request that makes AdGuard fetch something itself.
+#:
+#: `add_url` does not answer until the node has downloaded and parsed the whole
+#: subscription, and a threat-intelligence feed is millions of rules — a minute
+#: or more of work on a small host, all of it before the first byte of the
+#: response. The configured timeout is for a different question, "is this node
+#: alive", which wants a short answer; one value cannot be right for both, and
+#: the default of ten seconds made adding a large list impossible.
+#:
+#: Deliberately a constant rather than a multiple of the configured timeout: an
+#: operator whose node cannot accept a list should not have to work out that the
+#: number to raise is the one labelled "HTTP timeout", nor pay for that guess on
+#: every status check.
+LIST_FETCH_TIMEOUT = 120.0
+
+#: Enough to name what went wrong without turning one failure into a wall.
+MAX_LIST_ERRORS_SHOWN = 3
+
+
 class AdGuardAdapter(DnsAdapter):
     name = "adguard"
 
@@ -151,24 +170,34 @@ class AdGuardAdapter(DnsAdapter):
                 return
             await self._login()
 
-    async def _send(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
+    async def _send(
+        self, method: str, path: str, *, timeout: float | None = None, **kwargs: Any
+    ) -> httpx.Response:
+        if timeout is not None:
+            kwargs["timeout"] = timeout
         try:
             return await self._client.request(method, path, **kwargs)
         except httpx.HTTPError as exc:
+            # The timeout named in the message has to be the one that actually
+            # elapsed, or "no answer after 10s" sends the reader looking at a
+            # setting that had nothing to do with it.
+            waited = timeout if timeout is not None else self._timeout
             raise AdapterError(
-                f"{method} {path} failed: {describe_transport_error(exc, self._timeout)}"
+                f"{method} {path} failed: {describe_transport_error(exc, waited)}"
             ) from exc
 
-    async def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
+    async def _request(
+        self, method: str, path: str, *, timeout: float | None = None, **kwargs: Any
+    ) -> httpx.Response:
         await self._ensure_session()
-        response = await self._send(method, path, **kwargs)
+        response = await self._send(method, path, timeout=timeout, **kwargs)
 
         # An expired or invalidated session: drop it and authenticate once more.
         if response.status_code in (401, 403) and self._username:
             self._sessions.clear(self._key)
             async with self._sessions.lock(self._key):
                 await self._login()
-            response = await self._send(method, path, **kwargs)
+            response = await self._send(method, path, timeout=timeout, **kwargs)
 
         if response.status_code == 429:
             self._sessions.note_rate_limited(self._key)
@@ -286,31 +315,58 @@ class AdGuardAdapter(DnsAdapter):
         return result
 
     async def push_filter_lists(self, lists: list[RemoteFilterList]) -> None:
-        """Reconcile subscriptions to ``lists``: add missing, update changed, drop extras."""
+        """Reconcile subscriptions to ``lists``: add missing, update changed, drop extras.
+
+        Every subscription is attempted, and the failures are reported together
+        at the end. Stopping at the first one looks tidier and is much worse: a
+        node missing twenty lists would fail on the first, abandon the other
+        nineteen, and start again from the same first list five minutes later —
+        forever, never getting one list further. Nineteen applied and one named
+        is the better answer, and it is the one the rest of the hub gives (spec
+        §6: best effort, no rollback).
+        """
         current = {(item.kind, item.url): item for item in await self.pull_filter_lists()}
         desired = {(item.kind, item.url): item for item in lists}
+        failures: list[str] = []
 
         for key, item in desired.items():
             whitelist = item.kind == "allowlist"
             existing = current.get(key)
-            if existing is None:
-                await self._request(
-                    "POST",
-                    "/control/filtering/add_url",
-                    json={"name": item.name, "url": item.url, "whitelist": whitelist},
-                )
-                if not item.enabled:
+            try:
+                if existing is None:
+                    await self._request(
+                        "POST",
+                        "/control/filtering/add_url",
+                        json={"name": item.name, "url": item.url, "whitelist": whitelist},
+                        # The node fetches the list before it answers.
+                        timeout=LIST_FETCH_TIMEOUT,
+                    )
+                    if not item.enabled:
+                        await self._set_url(item, whitelist)
+                elif existing.enabled != item.enabled or existing.name != item.name:
                     await self._set_url(item, whitelist)
-            elif existing.enabled != item.enabled or existing.name != item.name:
-                await self._set_url(item, whitelist)
+            except AdapterError as exc:
+                failures.append(f"{item.url} ({exc})")
 
         for key, item in current.items():
             if key not in desired:
-                await self._request(
-                    "POST",
-                    "/control/filtering/remove_url",
-                    json={"url": item.url, "whitelist": item.kind == "allowlist"},
-                )
+                try:
+                    await self._request(
+                        "POST",
+                        "/control/filtering/remove_url",
+                        json={"url": item.url, "whitelist": item.kind == "allowlist"},
+                    )
+                except AdapterError as exc:
+                    failures.append(f"{item.url} ({exc})")
+
+        if failures:
+            shown = "; ".join(failures[:MAX_LIST_ERRORS_SHOWN])
+            rest = len(failures) - MAX_LIST_ERRORS_SHOWN
+            raise AdapterError(
+                f"{len(failures)} of {len(desired)} subscription(s) could not be applied: "
+                + shown
+                + (f"; and {rest} more" if rest > 0 else "")
+            )
 
     async def _set_url(self, item: RemoteFilterList, whitelist: bool) -> None:
         await self._request(
