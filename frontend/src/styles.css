@@ -500,11 +500,20 @@ label {
    rows, which is where a footer belongs. */
 /* Two kinds of thing: which build this is, and where you can go. Separators
    rather than even spacing, so the version does not read as a third
-   destination. */
+   destination.
+
+   Centred rather than baseline-aligned, here and on .footer-dest below. One of
+   the links carries an icon, and a flex container reports the baseline of its
+   *first* flex item — which for that link is the icon, a replaced box whose
+   baseline is synthesised at its bottom edge, several pixels below the text
+   baseline beside it. Baseline alignment therefore lifted the whole link to put
+   the bottom of the icon where the other labels' baselines are. Every item on
+   this row is one line of the same 12.5px text, so centring their boxes lands
+   their baselines together. */
 .footer {
   display: flex;
   justify-content: center;
-  align-items: baseline;
+  align-items: center;
   gap: 9px;
   flex-wrap: wrap;
   padding: 22px 30px 30px;
@@ -533,7 +542,7 @@ label {
    dot inside the anchor was underlined together with the label on hover. */
 .footer-dest {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: 9px;
 }
 
