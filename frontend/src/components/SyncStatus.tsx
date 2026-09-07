@@ -27,6 +27,19 @@ function verdict(
           : t('1 node unreachable'),
     }
   }
+  // Before the queue, after unreachability: a node that answers every request
+  // and holds none of them is not "in sync", and saying so was the gap that let
+  // one sit wrong for four hours under a green summary.
+  const drifting = instances.filter((item) => item.out_of_sync_since).length
+  if (drifting) {
+    return {
+      tone: 'bad',
+      text:
+        drifting > 1
+          ? t('{count} nodes out of sync', { count: drifting })
+          : t('1 node out of sync'),
+    }
+  }
   const queued = stats.pending_jobs + stats.failed_jobs
   if (queued) {
     return {
@@ -100,15 +113,21 @@ export function SyncStatus({ connected, tick }: { connected: boolean; tick: numb
                       ? ' down'
                       : instance.status === 'disabled'
                         ? ' off'
-                        : ''
+                        : instance.out_of_sync_since
+                          ? ' drifting'
+                          : ''
                   }`}
                   style={{ width: 7, height: 7 }}
                 />
                 <span style={{ fontWeight: 600 }}>{instance.name}</span>
                 <span style={{ marginLeft: 'auto', color: 'var(--dim)' }}>
-                  {instance.status === 'online'
-                    ? formatTime(instance.last_synced_at)
-                    : instance.status}
+                  {instance.status !== 'online'
+                    ? instance.status
+                    : instance.out_of_sync_since
+                      ? t('out of sync since {when}', {
+                          when: formatTime(instance.out_of_sync_since),
+                        })
+                      : formatTime(instance.last_synced_at)}
                 </span>
               </div>
             ))

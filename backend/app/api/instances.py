@@ -83,6 +83,7 @@ def to_out(instance: Instance) -> InstanceOut:
         last_error=instance.last_error,
         last_seen_at=instance.last_seen_at,
         last_synced_at=instance.last_synced_at,
+        out_of_sync_since=instance.out_of_sync_since,
         created_at=instance.created_at,
     )
 
