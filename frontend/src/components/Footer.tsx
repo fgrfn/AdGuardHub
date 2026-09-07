@@ -36,18 +36,25 @@ export function Footer() {
         <span>AdGuardHub</span>
       )}
 
-      {/* The separator is drawn by the link it precedes rather than sitting
-          between them as its own element: on a narrow screen a standalone one
-          is left dangling at the end of a wrapped line. This way it travels
-          with the item it belongs to. */}
-      <a className="footer-dest" href={REPO_URL} target="_blank" rel="noreferrer noopener">
-        <IconGitHub />
-        GitHub
-      </a>
+      {/* The separator travels with the destination it precedes rather than
+          sitting between them as its own flex item: on a narrow screen a
+          standalone one is left dangling at the end of a wrapped line.
+          It belongs to the wrapper and not to the link, because
+          `text-decoration` cannot be switched off in a descendant — drawn
+          inside the anchor, the dot was underlined along with the label on
+          hover. */}
+      <span className="footer-dest">
+        <a href={REPO_URL} target="_blank" rel="noreferrer noopener">
+          <IconGitHub />
+          GitHub
+        </a>
+      </span>
 
-      <a className="footer-dest" href={ISSUES_URL} target="_blank" rel="noreferrer noopener">
-        {t('Report an issue')}
-      </a>
+      <span className="footer-dest">
+        <a href={ISSUES_URL} target="_blank" rel="noreferrer noopener">
+          {t('Report an issue')}
+        </a>
+      </span>
     </footer>
   )
 }
