@@ -149,6 +149,9 @@ export const de: Record<string, string> = {
 
   // Dashboard, query log, rules, subscriptions
   "1 node unreachable": "1 Node nicht erreichbar",
+  "1 node out of sync": "1 Node weicht ab",
+  "{count} nodes out of sync": "{count} Nodes weichen ab",
+  "out of sync since {when}": "weicht ab seit {when}",
   "1 push queued": "1 Übertragung wartet",
   "A domain to never block; stored as an @@ exception rule.": "Eine Domain, die nie blockiert wird; gespeichert als @@-Ausnahmeregel.",
   "A push that could not be delivered waits here and is retried automatically until it lands.": "Eine nicht zustellbare Übertragung wartet hier und wird automatisch wiederholt, bis sie ankommt.",

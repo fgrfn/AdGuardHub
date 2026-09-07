@@ -112,6 +112,18 @@ class Instance(Base):
     last_error: Mapped[str] = mapped_column(Text, default="")
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # When this node was first found holding something other than what the hub
+    # wants, and still is. NULL means it matches.
+    #
+    # A node that answers every request is *online*, and until this existed that
+    # was the whole of what the interface said about it. One went four hours
+    # refusing every correction — twenty subscriptions missing, the same failure
+    # every five minutes — while its card read "online" and nothing anywhere was
+    # amber. The drift log had it, but only if you went looking, and the one
+    # notification it sent was correctly suppressed as a repeat after the first.
+    out_of_sync_since: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

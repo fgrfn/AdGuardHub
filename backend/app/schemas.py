@@ -139,6 +139,10 @@ class InstanceOut(ORMModel):
     last_error: str
     last_seen_at: datetime | None
     last_synced_at: datetime | None
+    # Set while the node is answering but holding something other than what
+    # the hub wants; NULL when it matches. `status` cannot say this — such a
+    # node is genuinely online.
+    out_of_sync_since: datetime | None
     created_at: datetime
 
 

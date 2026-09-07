@@ -1161,6 +1161,13 @@ td.right {
   background: var(--faint);
 }
 
+/* Answering, but not holding what the hub wants. Its own colour rather than
+   the down one: the node is up, and calling it down would send whoever reads
+   this to check a network that is fine. */
+.node-dot.drifting {
+  background: var(--warn);
+}
+
 .node-facts {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

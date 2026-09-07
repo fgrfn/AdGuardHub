@@ -450,6 +450,22 @@ async def reconcile_instance(
             )
         )
         logged.append(Difference(difference.payload_kind, summary, difference.details))
+
+    # Whether the node currently holds what the hub wants — the question its
+    # status could not answer. Drift that was found and corrected does not count:
+    # that is reconciliation working. What counts is a difference still standing
+    # after the attempt, because the push errored or the node would not keep it.
+    #
+    # A dry run leaves this alone. Nothing was attempted, so it has no business
+    # saying whether a correction would have held.
+    if apply_fixes:
+        if failed or refused:
+            # First seen, not last: the useful number is how long this has been
+            # true, and re-stamping it every five minutes would reset that.
+            instance.out_of_sync_since = instance.out_of_sync_since or utcnow()
+        else:
+            instance.out_of_sync_since = None
+
     await session.commit()
     await prune_drift_events(session)
 

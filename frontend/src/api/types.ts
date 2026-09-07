@@ -35,6 +35,8 @@ export interface Instance {
   last_error: string
   last_seen_at: string | null
   last_synced_at: string | null
+  /** Answering, but not holding what the hub wants. Null when it matches. */
+  out_of_sync_since: string | null
   created_at: string
 }
 
