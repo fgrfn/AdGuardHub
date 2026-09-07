@@ -122,6 +122,7 @@ credentials.
 | [AdGuard-compatible API](./docs/api.md) | Pointing a phone remote or Home Assistant at the hub |
 | [Development](./docs/development.md) | Local setup, the test suites, translations, project layout |
 | [Releases and roadmap](./docs/roadmap.md) | What each version brought, and what is next |
+| [Security policy](./SECURITY.md) | Reporting a vulnerability privately, and what is in scope |
 
 ## Status
 
