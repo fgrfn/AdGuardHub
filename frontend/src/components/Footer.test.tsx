@@ -49,4 +49,25 @@ describe('Footer', () => {
   it('sends "report an issue" to the form rather than to the list to read', () => {
     expect(ISSUES_URL).toBe(`${REPO_URL}/issues/new`)
   })
+
+  it('keeps the separator outside the link it belongs to', () => {
+    // The dot is a ::before, which jsdom does not render, so the check is on
+    // where it is attached. That is the whole of the bug: drawn inside the
+    // anchor it was underlined along with the label on hover, and
+    // text-decoration cannot be switched off in a descendant — the line comes
+    // from the ancestor. Keeping it on a wrapper is the fix, and this is what
+    // would quietly undo it.
+    const { container } = render(
+      <I18nProvider>
+        <Footer />
+      </I18nProvider>,
+    )
+
+    const separators = container.querySelectorAll('.footer-dest')
+    expect(separators).toHaveLength(2)
+    for (const holder of separators) {
+      expect(holder.tagName).not.toBe('A')
+      expect(holder.querySelector('a')).not.toBeNull()
+    }
+  })
 })

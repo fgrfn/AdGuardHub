@@ -525,11 +525,20 @@ label {
   text-decoration: underline;
 }
 
-/* Drawn by the destination rather than placed between destinations, so a
-   wrapped line never ends on a separator with nothing after it. */
+/* Carried by the destination rather than placed between destinations, so a
+   wrapped line never ends on a separator with nothing after it.
+
+   On a wrapper around the link, never on the link itself: text-decoration
+   cannot be switched off in a descendant — it is drawn by the ancestor — so a
+   dot inside the anchor was underlined together with the label on hover. */
+.footer-dest {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 9px;
+}
+
 .footer-dest::before {
   content: '·';
-  margin-right: 9px;
   opacity: 0.5;
 }
 
