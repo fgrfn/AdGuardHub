@@ -26,6 +26,7 @@ function node(overrides: Partial<Instance>): Instance {
     last_error: '',
     last_seen_at: null,
     last_synced_at: null,
+    out_of_sync_since: null,
     created_at: '2026-01-01T00:00:00Z',
     ...overrides,
   }

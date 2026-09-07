@@ -41,7 +41,9 @@ function show(nodes: Instance[], stats: Partial<DashboardStats> = QUIET) {
   return render(
     <MemoryRouter>
       <I18nProvider>
-        <SyncStatus />
+        {/* tick=0 means "no live update has arrived", which is what keeps the
+            component on its first fetch rather than reloading under the test. */}
+        <SyncStatus connected tick={0} />
       </I18nProvider>
     </MemoryRouter>,
   )
