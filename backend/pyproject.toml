@@ -11,3 +11,13 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 filterwarnings = ["ignore::DeprecationWarning"]
+# A test that hangs reports nothing: CI waits out its own limit and prints
+# no failure, so the run looks stuck rather than broken. Twice in one
+# evening a test written against a coroutine that never returns did exactly
+# that. Generous enough that the slowest real test is nowhere near it — the
+# full suite takes about two minutes, the slowest single test under ten
+# seconds — so hitting this means hung, not slow.
+timeout = 120
+# "thread" rather than "signal": the signal method cannot interrupt a
+# coroutine blocked in the event loop, which is the case this exists for.
+timeout_method = "thread"
