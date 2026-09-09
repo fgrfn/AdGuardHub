@@ -39,7 +39,7 @@ services:
       # ADGUARDHUB_ADMIN_PASSWORD: "choose-a-strong-password"
 
       # Optional tuning (seconds).
-      # ADGUARDHUB_RECONCILE_INTERVAL: "300"
+      # ADGUARDHUB_RECONCILE_INTERVAL: "900"
       # ADGUARDHUB_RETRY_INTERVAL: "30"
       # ADGUARDHUB_QUERYLOG_POLL_INTERVAL: "5"
 

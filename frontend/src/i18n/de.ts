@@ -311,7 +311,8 @@ export const de: Record<string, string> = {
   "How many aggregated entries are kept in memory. Nothing is written to disk.": "Wie viele zusammengeführte Einträge im Speicher gehalten werden. Nichts wird auf die Festplatte geschrieben.",
   "How often a queued push to an unreachable instance is retried.": "Wie oft eine eingereihte Übertragung an eine nicht erreichbare Instanz wiederholt wird.",
   "How often each instance is polled for new log entries. Lower means more requests.": "Wie oft jede Instanz nach neuen Protokolleinträgen gefragt wird. Kleiner heißt mehr Anfragen.",
-  "How often every instance is compared against the hub and corrected.": "Wie oft jede Instanz mit dem Hub verglichen und korrigiert wird.",
+  "How often every instance is compared against the hub and corrected. Your own changes do not wait for this — they are pushed the moment you make them.":
+    "Wie oft jede Instanz mit dem Hub verglichen und korrigiert wird. Deine eigenen Änderungen warten nicht darauf — sie werden sofort ausgespielt.",
   "How the hub itself behaves. The settings replicated to your instances live under Instances.": "Wie sich der Hub selbst verhält. Die an die Instanzen replizierten Einstellungen stehen unter Instanzen.",
   "Instance request timeout": "Zeitlimit für Instanz-Anfragen",
   "No configuration sections.": "Keine Konfigurationsbereiche.",

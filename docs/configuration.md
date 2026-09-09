@@ -9,7 +9,7 @@ All settings are environment variables prefixed with `ADGUARDHUB_`. In a contain
 | `ADGUARDHUB_DATA_DIR` | `/data` | Where `adguardhub.db` lives. |
 | `ADGUARDHUB_ADMIN_USERNAME` | — | Creates/updates the admin account on start. |
 | `ADGUARDHUB_ADMIN_PASSWORD` | — | Password for the above. |
-| `ADGUARDHUB_RECONCILE_INTERVAL` | `300` | Seconds between drift checks. |
+| `ADGUARDHUB_RECONCILE_INTERVAL` | `900` | Seconds between drift checks. Your own changes are pushed instantly and never wait for this — see [How often the safety net runs](replication.md#how-often-the-safety-net-runs). |
 | `ADGUARDHUB_RETRY_INTERVAL` | `30` | Seconds between retry-queue passes. |
 | `ADGUARDHUB_QUERYLOG_POLL_INTERVAL` | `5` | Seconds between query log polls. |
 | `ADGUARDHUB_QUERYLOG_BUFFER_SIZE` | `2000` | Entries kept in the in-memory log buffer. |

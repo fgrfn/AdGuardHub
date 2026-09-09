@@ -27,7 +27,14 @@ class Settings(BaseSettings):
     session_max_age: int = 60 * 60 * 24 * 14  # 14 days
 
     # Background workers (seconds).
-    reconcile_interval: int = 300
+    #
+    # Fifteen minutes rather than five, because propagation does not ride on this
+    # timer: every change is pushed the moment it is made, and a node that was
+    # unreachable is caught by the retry queue on ``retry_interval``. What is left
+    # for the timer is drift somebody caused outside the hub — and correcting that
+    # within a quarter of an hour is ample, where re-reading both nodes' entire
+    # configuration 288 times a day to find nothing is not.
+    reconcile_interval: int = 900
     retry_interval: int = 30
     querylog_poll_interval: int = 5
     querylog_buffer_size: int = 2000

@@ -411,3 +411,34 @@ async def test_two_pushes_to_one_node_land_in_order(auth_client: httpx.AsyncClie
 
     assert sorted(node.rules) == ["||one.example^", "||two.example^"]
 
+
+
+async def test_a_query_log_release_is_pushed_at_once_whatever_the_interval(
+    auth_client: httpx.AsyncClient,
+) -> None:
+    """The reconciliation interval must not slow a change down.
+
+    Asked directly when the default moved from five minutes to fifteen: does a
+    domain released from the query log now wait a quarter of an hour? It does
+    not, and nothing in the push path reads the interval — but "nothing reads it"
+    is a claim about code that changes, so it is pinned here instead.
+
+    The interval is set to its maximum first: a day. If propagation depended on
+    the timer in any way, this would be the test that could not pass.
+    """
+    await add_instance(auth_client, "a", A)
+    await add_instance(auth_client, "b", B)
+    assert (
+        await auth_client.put("/api/settings/hub", json={"reconcile_interval": 86_400})
+    ).status_code == 200
+
+    # What the query log's whitelist button calls, origin and all.
+    released = await auth_client.post(
+        "/api/rules/allow?origin=querylog", json={"domain": "doorbell.example.com"}
+    )
+    assert released.status_code == 200
+    await drain_background()
+
+    # Both nodes, not just the one the log entry came from (spec §9).
+    for url in (A, B):
+        assert FakeAdapter.state_for(url).rules == ["@@||doorbell.example.com^"]

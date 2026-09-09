@@ -183,7 +183,11 @@ class HubSettings(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     reconcile_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    reconcile_interval: Mapped[int] = mapped_column(Integer, default=300)
+    # Kept in step with config.py, which is what actually seeds a fresh row. An
+    # existing row is never rewritten by a changed default: the stored value is
+    # the operator's decision, and moving it underneath them would be exactly the
+    # silent kind of change this hub exists to avoid.
+    reconcile_interval: Mapped[int] = mapped_column(Integer, default=900)
     retry_interval: Mapped[int] = mapped_column(Integer, default=30)
     querylog_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     querylog_poll_interval: Mapped[int] = mapped_column(Integer, default=5)
