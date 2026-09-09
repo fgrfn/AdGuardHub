@@ -499,6 +499,9 @@ export const de: Record<string, string> = {
   "No pass recorded yet.": "Noch kein Durchlauf aufgezeichnet.",
   "nothing to correct": "nichts zu korrigieren",
   "Nothing to correct": "Nichts zu korrigieren",
+  "Nothing to replicate yet": "Noch nichts zu replizieren",
+  "The hub holds no rule, no subscription and no imported settings, so it is not comparing your nodes against it. Reconciliation starts with the first of them.":
+    "Der Hub enthält keine Regel, kein Abo und keine importierten Einstellungen und vergleicht deine Nodes deshalb nicht mit ihm. Der Abgleich beginnt, sobald das Erste davon da ist.",
   "Outcome": "Ergebnis",
   "Passes": "Durchläufe",
   "Reconciliation": "Abgleich",

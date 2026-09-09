@@ -34,11 +34,29 @@ from .notify import (
     notify_if_recovered,
 )
 from .retention import prune_drift_events, prune_reconcile_runs
-from .sync import desired_filter_lists, desired_rules, desired_sections, push_kind, push_lock
+from .sync import (
+    desired_filter_lists,
+    desired_rules,
+    desired_sections,
+    has_desired_state,
+    push_kind,
+    push_lock,
+)
 
 logger = logging.getLogger(__name__)
 
 MAX_DETAIL_ITEMS = 25
+
+NOTHING_TO_REPLICATE = (
+    "The hub holds no rule, no subscription and no populated managed section, so there is "
+    "nothing to reconcile against. Reconciliation starts with the first of them."
+)
+
+#: Whether the "nothing to replicate" notice has already been given. The state it
+#: reports is not a fault and does not change on its own — an unconfigured hub is
+#: unconfigured on every tick — so it is said once at WARNING and then kept at
+#: DEBUG, the same rule the drift log follows for a repeating refusal.
+_said_nothing_to_replicate = False
 
 
 def _ms_since(started: float) -> int:
@@ -647,6 +665,29 @@ async def record_pass(
 
 
 async def reconcile_all(session: AsyncSession, *, apply_fixes: bool = True) -> list[InstanceReport]:
+    """Compare every enabled instance against the central state.
+
+    Unless there is no central state. A hub holding nothing has an empty desired
+    state, and since every push is full state, reconciliation would read that as
+    "these nodes should hold nothing" and clear them — rules, subscriptions and
+    all — every five minutes for as long as it ran. The gate is here rather than
+    in the push path on purpose: see ``sync.has_desired_state``.
+    """
+    global _said_nothing_to_replicate
+
+    if not await has_desired_state(session):
+        logger.log(
+            logging.DEBUG if _said_nothing_to_replicate else logging.WARNING,
+            "Reconciliation skipped: %s",
+            NOTHING_TO_REPLICATE,
+        )
+        _said_nothing_to_replicate = True
+        # No pass is recorded either. A skipped pass compared nothing, and folding
+        # it into the streak would let "nothing to correct" — the one phrase that
+        # table exists to be trusted about — mean "nothing was looked at".
+        return []
+    _said_nothing_to_replicate = False
+
     result = await session.execute(
         select(Instance).where(Instance.enabled.is_(True)).order_by(Instance.id.asc())
     )

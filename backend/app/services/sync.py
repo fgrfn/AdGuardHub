@@ -85,6 +85,34 @@ async def desired_sections(session: AsyncSession) -> dict[str, dict]:
     return await managed_sections(session)
 
 
+async def has_desired_state(session: AsyncSession) -> bool:
+    """Whether the hub holds anything at all to replicate.
+
+    A hub with no rule, no subscription and no populated managed section has an
+    empty desired state — and because every push is *full state*, "empty" is not
+    a neutral value: reconciliation would read it as "these nodes should hold
+    nothing" and clear them. A hub that was never set up therefore erases a
+    working node on its first timer tick, which is precisely what happened to a
+    second instance left standing on step 1 of the onboarding wizard with a
+    production node already entered.
+
+    Rules and subscriptions are counted as *rows*, not as enabled rows: a hub
+    whose rules are all switched off has still been configured, and switching a
+    rule off is a decision that must reach the nodes. Sections go through
+    ``desired_sections`` because a section that is managed but has nothing
+    imported yet pushes nothing either way.
+
+    This deliberately gates reconciliation only. The instant push must keep
+    running on an empty desired state, because deleting the last rule *produces*
+    one — gating the push too would mean that deletion never reached a node.
+    """
+    if await session.scalar(select(Rule.id).limit(1)) is not None:
+        return True
+    if await session.scalar(select(FilterList.id).limit(1)) is not None:
+        return True
+    return bool(await desired_sections(session))
+
+
 # --------------------------------------------------------------------------
 # Push
 # --------------------------------------------------------------------------

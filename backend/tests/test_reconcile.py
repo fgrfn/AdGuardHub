@@ -124,6 +124,10 @@ async def test_dry_run_reports_without_correcting(auth_client: httpx.AsyncClient
 
 async def test_reconcile_records_an_unreachable_instance(auth_client: httpx.AsyncClient) -> None:
     await add_instance(auth_client, "a", A)
+    # A hub with nothing in it does not reconcile at all, so the node has to be
+    # unreachable to a hub that has something to say.
+    await auth_client.post("/api/rules", json={"text": "||ads.example.com^"})
+    await drain_background()
     FakeAdapter.state_for(A).offline = True
 
     reports = (await auth_client.post("/api/reconcile")).json()
@@ -437,6 +441,8 @@ async def test_the_nodes_client_is_closed_even_when_the_pass_blows_up(
     from .test_sync import A, add_instance
 
     await add_instance(auth_client, "a", A)
+    # Something to replicate, or the pass is skipped before it opens a client.
+    await auth_client.post("/api/rules", json={"text": "||ads.example.com^"})
     await drain_background()
     FakeAdapter.state_for(A).rules = ["||out-of-band.example^"]  # something to correct
 

@@ -130,6 +130,13 @@ export interface Notifier {
 }
 
 export interface DashboardStats {
+  /**
+   * Whether the hub holds anything to replicate — a rule, a subscription, or a
+   * managed section with something in it. False means reconciliation is skipping
+   * its passes deliberately, and the card has to say so: an unconfigured hub
+   * would otherwise look exactly like a timer that stopped.
+   */
+  replicating: boolean
   instances_total: number
   last_sync_at: string | null
   instances_synced: number

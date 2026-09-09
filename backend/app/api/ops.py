@@ -32,8 +32,8 @@ from ..schemas import (
 )
 from ..services import querylog
 from ..services.aggregate import traffic_summary
-from ..services.reconcile import reconcile_all
-from ..services.sync import ALL_KINDS, process_retry_queue, sync_all
+from ..services.reconcile import NOTHING_TO_REPLICATE, reconcile_all
+from ..services.sync import ALL_KINDS, has_desired_state, process_retry_queue, sync_all
 
 router = APIRouter(prefix="/api", tags=["ops"])
 
@@ -62,6 +62,11 @@ async def dashboard(_: CurrentUser, session: SessionDep) -> DashboardStats:
     ).scalar_one_or_none()
 
     return DashboardStats(
+        # From the same function reconciliation gates on, not recomputed from the
+        # counts below: `managed_sections` counts sections that are switched on
+        # including ones with nothing imported yet, so deriving it here would let
+        # the card claim the safety net is running while the timer skips it.
+        replicating=await has_desired_state(session),
         instances_total=await _count(session, select(func.count()).select_from(Instance)),
         last_sync_at=last_sync,
         instances_synced=await _count(
@@ -125,6 +130,12 @@ async def run_reconcile(
     _: CurrentUser, session: SessionDep, apply_fixes: bool = True
 ) -> list[ReconcileReportOut]:
     """Run a reconciliation pass now. ``apply_fixes=false`` performs a dry run."""
+    # Refused rather than answered with an empty list. Reconciliation skips a hub
+    # with nothing to replicate, and an empty list renders as "no drift found —
+    # every instance matches", which is both false and reassuring about the one
+    # state in which this hub would otherwise have wiped a node.
+    if not await has_desired_state(session):
+        raise HTTPException(status.HTTP_409_CONFLICT, NOTHING_TO_REPLICATE)
     reports = await reconcile_all(session, apply_fixes=apply_fixes)
     return [
         ReconcileReportOut(
