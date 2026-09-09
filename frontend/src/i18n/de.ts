@@ -354,6 +354,12 @@ export const de: Record<string, string> = {
   "{title} is now pushed to every instance.": "{title} geht jetzt an jede Instanz.",
   "{title} saved and pushed to every instance.": "{title} gespeichert und an jede Instanz übertragen.",
   "{title} saved.": "{title} gespeichert.",
+  "Drift archive": "Abweichungsarchiv",
+  "Every reconciliation finding as it happened, written to a file beside the database. Unlike the drift log on the dashboard it keeps the repeats, keeps the full rule lists, and is not emptied by Clear log.": "Jeder Abgleichsbefund so, wie er auftrat, in eine Datei neben der Datenbank geschrieben. Anders als das Abweichungsprotokoll im Dashboard behält es die Wiederholungen und die vollständigen Regellisten und wird von „Protokoll leeren“ nicht geleert.",
+  "Load older entries": "Ältere Einträge laden",
+  "Nothing archived yet — the hub has found no drift.": "Noch nichts archiviert — der Hub hat keine Abweichung gefunden.",
+  "Reload": "Neu laden",
+  "The drift archive is switched off. Set ADGUARDHUB_DRIFT_LOG_ENABLED=true to keep one.": "Das Abweichungsarchiv ist ausgeschaltet. Mit ADGUARDHUB_DRIFT_LOG_ENABLED=true wird eines geführt.",
 
   // Section and field metadata served by the backend
   "1 day": "1 Tag",

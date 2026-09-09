@@ -18,7 +18,7 @@ from ..schemas import (
     NotifierOut,
     NotifierUpdate,
 )
-from ..services import hubsettings, logbuffer, selfupdate, updates
+from ..services import driftarchive, hubsettings, logbuffer, selfupdate, updates
 from ..services.logbuffer import get_buffer
 from ..services.notify import KNOWN_EVENTS, NOTIFIER_TYPES, test_target
 from ..services.updates import install_method
@@ -183,6 +183,41 @@ async def application_log(
         "cursor": lines[-1].seq if lines else cursor,
         "latest": buffer.latest_seq(),
         "capacity": logbuffer.MAX_LINES,
+    }
+
+
+@router.get("/drift-archive")
+async def drift_archive(
+    _: CurrentUser, after: int = 0, limit: int = driftarchive.MAX_PAGE
+) -> dict[str, Any]:
+    """The archived drift findings, newest first.
+
+    The drift log on the dashboard answers "what is wrong now": capped at 500
+    rows, one row per finding however often it repeats, rule lists trimmed, and
+    emptied by *Clear log*. This is the other question — what happened, in
+    order, with nothing left out — which by definition cannot be answered by the
+    view that keeps itself short.
+
+    `after` counts back from the newest entry rather than forward from the
+    oldest, so a cursor stays valid as the file grows and across a rotation.
+    """
+    entries, more = driftarchive.read(limit=limit, after=max(0, after))
+    return {
+        "entries": [
+            {
+                "offset": entry.offset,
+                "at": entry.at,
+                "instance": entry.instance,
+                "payload_kind": entry.payload_kind,
+                "summary": entry.summary,
+                "corrected": entry.corrected,
+                "took_ms": entry.took_ms,
+                "details": entry.details,
+            }
+            for entry in entries
+        ],
+        "more": more,
+        "enabled": driftarchive.enabled(),
     }
 
 

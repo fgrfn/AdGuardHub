@@ -21,6 +21,7 @@ from app.adapters import session as adapter_session  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.main import app  # noqa: E402
 from app.services import (
+    driftarchive,  # noqa: E402
     filtersizes,  # noqa: E402
     hubsettings,  # noqa: E402
 )
@@ -55,6 +56,11 @@ async def fresh_db(tmp_path, monkeypatch) -> AsyncIterator[None]:
     # served to the next.
     invalidate_stats_cache()
     filtersizes.invalidate()
+    # The drift archive is a file handler opened once at import, against the data
+    # directory the whole session shares. Pointed at this test's directory
+    # instead, so one test's findings are never read back by the next — and so
+    # the tests that read it are not looking at everything the run has written.
+    driftarchive.configure(str(tmp_path / "drift.log"), max_bytes=1024 * 1024, backups=1)
     yield
     await drain_background()
     await db.dispose_db()

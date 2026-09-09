@@ -4,6 +4,7 @@ import type {
   ConfigSection,
   ConnectionResult,
   DashboardStats,
+  DriftArchivePage,
   DriftEvent,
   FilterList,
   FilterSizes,
@@ -185,6 +186,8 @@ export const api = {
   updateStatus: (force = false) =>
     get<UpdateStatus>(`/api/settings/update${query({ force })}`),
   log: (cursor = 0) => get<LogPage>(`/api/settings/log${query({ cursor })}`),
+  driftArchive: (after = 0, limit = 100) =>
+    get<DriftArchivePage>(`/api/settings/drift-archive${query({ after, limit })}`),
   updateRun: () => get<UpdateRun>('/api/settings/update/run'),
   startUpdate: () => post<UpdateRun>('/api/settings/update/run'),
 

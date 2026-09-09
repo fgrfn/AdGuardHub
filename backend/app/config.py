@@ -54,9 +54,26 @@ class Settings(BaseSettings):
     log_file_max_bytes: int = 5 * 1024 * 1024
     log_file_backups: int = 3
 
+    # The drift archive: every reconciliation finding, appended as it happens,
+    # untrimmed. On by default and beside the database, unlike the application
+    # log file above — an archive nobody switched on is empty exactly when they
+    # discover they needed it, and it costs a line only when something drifts.
+    drift_log_enabled: bool = True
+    # Empty means <data_dir>/drift.log; see drift_log_path.
+    drift_log_file: str = ""
+    drift_log_max_bytes: int = 2 * 1024 * 1024
+    drift_log_backups: int = 3
+
     @property
     def database_path(self) -> str:
         return os.path.join(self.data_dir.rstrip("/"), "adguardhub.db")
+
+    @property
+    def drift_log_path(self) -> str:
+        """Where the archive is written, or empty when it is switched off."""
+        if not self.drift_log_enabled:
+            return ""
+        return self.drift_log_file or os.path.join(self.data_dir.rstrip("/"), "drift.log")
 
     @property
     def database_url(self) -> str:

@@ -355,3 +355,25 @@ export interface LogPage {
   latest: number
   capacity: number
 }
+
+/** One archived reconciliation finding, as written to disk when it happened. */
+export interface DriftArchiveEntry {
+  /** Position counted back from the newest entry — the paging cursor. */
+  offset: number
+  at: string
+  instance: string
+  payload_kind: string
+  summary: string
+  corrected: boolean
+  took_ms: number
+  /** Untrimmed, unlike the drift table's: the file has no reason to cap it. */
+  details: Record<string, unknown>
+}
+
+export interface DriftArchivePage {
+  entries: DriftArchiveEntry[]
+  /** Whether anything older sits behind this page. */
+  more: boolean
+  /** False when the archive is switched off, so the page can say so. */
+  enabled: boolean
+}

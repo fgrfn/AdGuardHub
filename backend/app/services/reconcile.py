@@ -25,7 +25,7 @@ from ..adapters import AdapterError, RemoteFilterList, build_adapter
 from ..db import session_scope
 from ..models import DriftEvent, Instance, InstanceStatus, PayloadKind, utcnow
 from ..runtime import get_crypto
-from . import hubsettings
+from . import driftarchive, hubsettings
 from .events import bus
 from .notify import (
     EVENT_INSTANCE_UNREACHABLE,
@@ -71,7 +71,22 @@ def human_ms(ms: int) -> str:
 class Difference:
     payload_kind: str
     summary: str
+    #: What the drift row and the interface get: capped at MAX_DETAIL_ITEMS, so
+    #: a node missing four thousand rules does not put four thousand strings in
+    #: a table cell or an API response.
     details: dict[str, Any] = field(default_factory=dict)
+    #: The same finding with nothing left out, for the archive on disk. Empty
+    #: when nothing was trimmed, in which case ``details`` is already complete —
+    #: only rules are ever capped.
+    #:
+    #: Two fields rather than trimming at each edge: `details` is compared
+    #: verbatim to decide whether a finding is the one already logged, so the
+    #: value that is written must be the value that is compared.
+    full_details: dict[str, Any] = field(default_factory=dict)
+
+    def archived(self) -> dict[str, Any]:
+        """The finding as the archive should keep it — the cap is a view, not the truth."""
+        return self.full_details or self.details
 
 
 @dataclass(slots=True)
@@ -95,13 +110,20 @@ def _trim(items: list[str]) -> list[str]:
 def diff_rules(expected: list[str], actual: list[str]) -> Difference | None:
     if expected == actual:
         return None
-    missing = _trim([rule for rule in expected if rule not in set(actual)])
-    extra = _trim([rule for rule in actual if rule not in set(expected)])
+    missing = [rule for rule in expected if rule not in set(actual)]
+    extra = [rule for rule in actual if rule not in set(expected)]
     if missing or extra:
+        # Counted before the cap. "25 rule(s) missing" on a node that has lost
+        # four thousand of them would be a wrong number, not a shortened one.
         summary = f"{len(missing)} rule(s) missing, {len(extra)} unexpected rule(s)"
     else:
         summary = "rules present but in a different order"
-    return Difference(PayloadKind.rules.value, summary, {"missing": missing, "extra": extra})
+    return Difference(
+        PayloadKind.rules.value,
+        summary,
+        {"missing": _trim(missing), "extra": _trim(extra)},
+        {"missing": missing, "extra": extra},
+    )
 
 
 def _list_key(item: RemoteFilterList) -> tuple[str, str]:
@@ -484,6 +506,7 @@ async def reconcile_instance(
         remaining = refused.get(difference.payload_kind)
         error = failed.get(difference.payload_kind)
         details = json.dumps(difference.details, default=str)
+        archived = difference.archived()
         if error:
             # The reason belongs in the row. It was going into report.error,
             # which nothing persists, so a pass that tried and could not push
@@ -498,7 +521,26 @@ async def reconcile_instance(
             # know that rather than watch it repeat.
             summary = f"the node did not keep this correction — {remaining.summary}"
             details = json.dumps(remaining.details, default=str)
+            archived = remaining.archived()
         attempt_ms = took.get(difference.payload_kind, 0)
+
+        # Archived before the fold below, and that ordering is the point: the
+        # database keeps one row per finding so the live view stays readable,
+        # while the archive keeps one line per pass so the sequence survives —
+        # every sighting, in order, with the rule lists untrimmed. Also before
+        # the 500-row cap and before *Clear log*, neither of which reaches a file.
+        driftarchive.record(
+            {
+                "at": utcnow().isoformat().replace("+00:00", "Z"),
+                "instance": instance.name,
+                "payload_kind": difference.payload_kind,
+                "summary": summary,
+                "corrected": difference.payload_kind in fixed,
+                "took_ms": attempt_ms,
+                "details": archived,
+            }
+        )
+
         # A refusal and a failing push both repeat on every run by definition, so
         # each is stated once and again when it changes — counted on the standing
         # row rather than repeated under it. A plain difference is not suppressed:

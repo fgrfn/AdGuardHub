@@ -20,6 +20,10 @@ All settings are environment variables prefixed with `ADGUARDHUB_`. In a contain
 | `ADGUARDHUB_LOG_FILE` | — | Also write a rotating log file at this path. Empty means stderr only. |
 | `ADGUARDHUB_LOG_FILE_MAX_BYTES` | `5242880` | Rotate the log file once it reaches this size. |
 | `ADGUARDHUB_LOG_FILE_BACKUPS` | `3` | How many rotated log files to keep. |
+| `ADGUARDHUB_DRIFT_LOG_ENABLED` | `true` | Keep the drift archive — see [Logs](operations.md#logs). |
+| `ADGUARDHUB_DRIFT_LOG_FILE` | — | Where to keep it. Empty means `drift.log` beside the database. |
+| `ADGUARDHUB_DRIFT_LOG_MAX_BYTES` | `2097152` | Rotate the archive once it reaches this size. |
+| `ADGUARDHUB_DRIFT_LOG_BACKUPS` | `3` | How many rotated archives to keep. |
 
 `ADGUARDHUB_VERSION` is not in that list on purpose: it is build metadata, baked into the
 image from the release tag by the Release workflow, not something to set at runtime.

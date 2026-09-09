@@ -26,6 +26,7 @@ import type { LogLine } from '../../api/types'
 import { IconSearch } from '../../components/icons'
 import { Card, Empty } from '../../components/ui'
 import { useT } from '../../i18n'
+import { DriftArchive } from './DriftArchive'
 import { type LogFilter, NO_FILTER, isFiltering, matches, sourceLabel } from './logFilter'
 
 const POLL_MS = 2000
@@ -33,7 +34,37 @@ const POLL_MS = 2000
 /** Enough to scroll back through a restart, matching the buffer the hub keeps. */
 const KEEP = 500
 
+/**
+ * Two registers of the same question — what did the hub do — kept on one page
+ * because that is where somebody goes to ask it. The application log is the
+ * tail of right now; the archive is what was written down and kept.
+ */
 export default function SettingsLog() {
+  const t = useT()
+  const [tab, setTab] = useState<'app' | 'archive'>('app')
+
+  return (
+    <>
+      <div className="tabs">
+        <button
+          className={`tab${tab === 'app' ? ' active' : ''}`}
+          onClick={() => setTab('app')}
+        >
+          {t('Application log')}
+        </button>
+        <button
+          className={`tab${tab === 'archive' ? ' active' : ''}`}
+          onClick={() => setTab('archive')}
+        >
+          {t('Drift archive')}
+        </button>
+      </div>
+      {tab === 'app' ? <ApplicationLog /> : <DriftArchive />}
+    </>
+  )
+}
+
+function ApplicationLog() {
   const t = useT()
   const [lines, setLines] = useState<LogLine[]>([])
   const [following, setFollowing] = useState(true)
