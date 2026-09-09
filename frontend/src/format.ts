@@ -53,6 +53,26 @@ export function formatCount(value: number): string {
 }
 
 /**
+ * How long something took, from milliseconds.
+ *
+ * Three ranges because the interesting spans are that far apart: a push to a
+ * healthy node on the LAN is tens of milliseconds, a node fetching a list is
+ * seconds, and a large blocklist is a minute or more. One unit across all of
+ * that gives either "62000 ms" or "0.0 min".
+ *
+ * The units are the same word in both languages the interface speaks, so they
+ * stay here rather than going through t() — and this is called from table cells
+ * where a translated fragment would only add a lookup.
+ */
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)} ms`
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s`
+  const minutes = Math.floor(ms / 60_000)
+  const seconds = Math.round((ms % 60_000) / 1000)
+  return `${minutes} min ${seconds} s`
+}
+
+/**
  * Time of day only, for logs where every row is from the last few minutes and the
  * date would just wrap the column. The full stamp belongs in a title attribute.
  */

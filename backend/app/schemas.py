@@ -417,6 +417,9 @@ class DriftEventOut(ORMModel):
     summary: str
     details: str
     corrected: bool
+    occurrences: int
+    last_seen_at: datetime | None
+    took_ms: int
     created_at: datetime
 
 
@@ -491,3 +494,4 @@ class ReconcileReportOut(BaseModel):
     error: str
     corrected: bool
     differences: list[dict[str, Any]]
+    took_ms: int = 0

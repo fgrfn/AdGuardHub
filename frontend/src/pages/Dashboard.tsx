@@ -4,6 +4,7 @@ import { api } from '../api/client'
 import type { DriftEvent, Instance, PushJob, ReconcileReport, Traffic } from '../api/types'
 import { Badge, Banner, Card, Empty, PageHeader } from '../components/ui'
 import { BlockRateRing, RankList, SeriesChart } from '../components/charts'
+import { DriftFacts } from '../components/DriftFacts'
 import { formatCount, formatTime } from '../format'
 import { errorMessage, useResource } from '../hooks/useApi'
 import { NodeUpdate } from '../components/NodeUpdate'
@@ -473,6 +474,7 @@ export default function Dashboard() {
                           <pre>{prettyJson(event.details)}</pre>
                         </details>
                       ) : null}
+                      <DriftFacts event={event} />
                     </td>
                     <td data-label={t('Fixed')}>
                       <Badge tone={event.corrected ? 'applied' : 'pending'}>

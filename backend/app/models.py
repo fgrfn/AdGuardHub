@@ -255,6 +255,27 @@ class DriftEvent(Base):
     summary: Mapped[str] = mapped_column(Text, default="")
     details: Mapped[str] = mapped_column(Text, default="")
     corrected: Mapped[bool] = mapped_column(Boolean, default=False)
+    # How many passes have now found exactly this, and when the last one did.
+    # A refusal repeats by definition, so writing a row per pass would bury the
+    # log — but dropping the repeat silently threw away the two numbers that say
+    # whether a fault is still live and how long it has been: the row's timestamp
+    # is when it was *first* seen, and nothing said it had happened again.
+    #
+    # server_default beside default, so a database upgraded by the additive
+    # migration in db.py carries the same column definition as a fresh one.
+    occurrences: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    last_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # How long the correction attempt for this payload took, end to end: the
+    # push plus the read-back that proves whether it landed. Zero when nothing
+    # was attempted — a dry run, or a difference that cannot be pushed away.
+    #
+    # Kept out of `details` on purpose. That column is compared verbatim to
+    # decide whether a finding is the same one as last time, and a duration
+    # differs on every single pass, so putting it there would defeat the
+    # counting above and write a fresh row every five minutes.
+    took_ms: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

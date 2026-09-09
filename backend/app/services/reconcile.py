@@ -14,6 +14,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -40,6 +41,32 @@ logger = logging.getLogger(__name__)
 MAX_DETAIL_ITEMS = 25
 
 
+def _ms_since(started: float) -> int:
+    """Whole milliseconds since a ``perf_counter`` reading.
+
+    Whole, because these are network round trips against a node on the LAN: the
+    interesting range is tens of milliseconds to the minute an ``add_url`` takes,
+    and a fractional millisecond in a drift row is a digit nobody reads.
+    """
+    return int((time.perf_counter() - started) * 1000)
+
+
+def human_ms(ms: int) -> str:
+    """A duration for the log line a person reads.
+
+    Stored as milliseconds and rendered in the unit that fits, because the spans
+    involved are three orders of magnitude apart: a push to a healthy node is
+    tens of milliseconds, a node fetching a list is seconds, and a large
+    blocklist is a minute or more. `pass 10200 ms` makes the reader do the
+    arithmetic at exactly the moment they are trying to spot a round number.
+    """
+    if ms < 1000:
+        return f"{ms} ms"
+    if ms < 60_000:
+        return f"{ms / 1000:.1f} s"
+    return f"{ms // 60_000} min {round((ms % 60_000) / 1000)} s"
+
+
 @dataclass(slots=True)
 class Difference:
     payload_kind: str
@@ -55,6 +82,8 @@ class InstanceReport:
     error: str = ""
     differences: list[Difference] = field(default_factory=list)
     corrected: bool = False
+    #: How long the whole pass over this instance took, in milliseconds.
+    took_ms: int = 0
 
 
 def _trim(items: list[str]) -> list[str]:
@@ -230,15 +259,25 @@ async def _still_differs(
     return diff_settings(expected_sections, actual)
 
 
-async def _already_said(
-    session: AsyncSession, instance_id: int, kind: str, summary: str, details: str
+async def _count_again(
+    session: AsyncSession, instance_id: int, kind: str, summary: str, details: str, took_ms: int
 ) -> bool:
-    """Whether the newest entry for this instance and payload already says this.
+    """Record another sighting on the newest matching entry, if there is one.
 
     A refusal repeats by definition: the node goes on not keeping the same thing,
     so every run would write the same entry. One says it; five hundred bury it.
     Only refusals are held back this way — an out-of-band change that keeps being
     made and corrected is genuinely new each time and stays in the log.
+
+    Held back is not the same as thrown away, though, and it used to be. The row
+    that stands is the *first* sighting, so its timestamp answers "since when"
+    and nothing answered "is this still happening" or "how often" — a fault four
+    hours old and one resolved four hours ago looked identical. The count and the
+    last sighting are now carried on that row, and the duration is refreshed to
+    the latest attempt's.
+
+    Returns whether an entry was found and updated, in which case the caller adds
+    no new row.
     """
     row = (
         (
@@ -253,7 +292,12 @@ async def _already_said(
         .scalars()
         .first()
     )
-    return row is not None and row.summary == summary and row.details == details
+    if row is None or row.summary != summary or row.details != details:
+        return False
+    row.occurrences += 1
+    row.last_seen_at = utcnow()
+    row.took_ms = took_ms
+    return True
 
 
 async def _correct(
@@ -264,9 +308,15 @@ async def _correct(
     fixed: set[str],
     refused: dict[str, Difference],
     failed: dict[str, str],
+    took: dict[str, int],
 ) -> None:
     """Push each correctable difference and sort it into fixed, refused or failed."""
     for difference in correctable:
+        # Timed around both calls, and recorded even when they raise: a push that
+        # ends in a timeout is exactly the one whose duration says what happened.
+        # Ten seconds on the nose next to "read timeout" names the setting that
+        # caused it; the same sentence without a number sent us looking for weeks.
+        started = time.perf_counter()
         # Per difference rather than around the loop. A settings section one
         # AdGuard build rejects used to abort the pass, so the rule set was
         # never corrected — and the drift row still said only "detected".
@@ -278,8 +328,10 @@ async def _correct(
                 session, adapter, difference.payload_kind, expected_sections
             )
         except (AdapterError, ValueError) as exc:
+            took[difference.payload_kind] = _ms_since(started)
             failed[difference.payload_kind] = str(exc)
             continue
+        took[difference.payload_kind] = _ms_since(started)
         if remaining is None:
             fixed.add(difference.payload_kind)
         else:
@@ -297,6 +349,7 @@ async def reconcile_instance(
     if instance.maintenance:
         return report
 
+    began = time.perf_counter()
     expected_sections = await desired_sections(session)
     # Both the outage and the recovery notice are edge-triggered on this, and the
     # branches below overwrite the status before either can be decided.
@@ -307,10 +360,12 @@ async def reconcile_instance(
     # them — a fault in the diff, a cancellation at shutdown — leaked the
     # node's HTTP client and its connection.
     async with contextlib.aclosing(adapter):
+        pull_started = time.perf_counter()
         try:
             state = await adapter.pull_state(tuple(expected_sections))
         except (AdapterError, ValueError) as exc:
             report.error = str(exc)
+            report.took_ms = _ms_since(began)
             was_online = previous == InstanceStatus.online.value
             instance.status = InstanceStatus.unreachable.value
             instance.last_error = report.error
@@ -323,6 +378,7 @@ async def reconcile_instance(
                 )
             return report
 
+        pull_ms = _ms_since(pull_started)
         report.checked = True
         instance.status = InstanceStatus.online.value
         instance.last_error = ""
@@ -372,13 +428,15 @@ async def reconcile_instance(
         # never took the write. Kept apart from a refusal, and from success, because
         # all three used to reach the operator as the single word "detected".
         failed: dict[str, str] = {}
+        # How long each correction attempt took, by payload kind.
+        took: dict[str, int] = {}
         if correctable and apply_fixes:
             # A correction is a full-state push like any other, and races an edit's
             # push to the same node the same way — see sync.push_lock. Held around
             # the read-back too, so what is verified is what this pass wrote.
             async with push_lock(instance.id):
                 await _correct(
-                    session, adapter, correctable, expected_sections, fixed, refused, failed
+                    session, adapter, correctable, expected_sections, fixed, refused, failed, took
                 )
             # True only if something actually landed. Claiming a correction that
             # did not stick is what made this invisible for as long as it was.
@@ -389,9 +447,18 @@ async def reconcile_instance(
                 report.error = "; ".join(f"{kind}: {text}" for kind, text in sorted(failed.items()))
 
 
+    report.took_ms = _ms_since(began)
+
+    # The timings go in the line rather than only in the drift row, because the
+    # application log is where you are already looking when the hub feels slow —
+    # and because a pass that found nothing has no drift row to carry them.
+    timing = f"pull {human_ms(pull_ms)}, pass {human_ms(report.took_ms)}"
+    if took:
+        timing += ", " + ", ".join(f"{kind} {human_ms(ms)}" for kind, ms in sorted(took.items()))
+
     if correctable:
         logger.info(
-            "Reconcile %s: %s%s",
+            "Reconcile %s: %s%s [%s]",
             instance.name,
             "; ".join(item.summary for item in correctable),
             (
@@ -403,9 +470,10 @@ async def reconcile_instance(
                 if fixed
                 else " — not corrected"
             ),
+            timing,
         )
     else:
-        logger.debug("Reconcile %s: no differences", instance.name)
+        logger.debug("Reconcile %s: no differences [%s]", instance.name, timing)
 
     logged: list[Difference] = []
     for difference in report.differences:
@@ -430,12 +498,14 @@ async def reconcile_instance(
             # know that rather than watch it repeat.
             summary = f"the node did not keep this correction — {remaining.summary}"
             details = json.dumps(remaining.details, default=str)
-        # A refusal and a failing push both repeat on every run by definition,
-        # so each is stated once and again when it changes. A plain difference
-        # is not suppressed: it is expected to be corrected, and a second one
-        # means the correction is not holding.
-        if (error or remaining is not None) and await _already_said(
-            session, instance.id, difference.payload_kind, summary, details
+        attempt_ms = took.get(difference.payload_kind, 0)
+        # A refusal and a failing push both repeat on every run by definition, so
+        # each is stated once and again when it changes — counted on the standing
+        # row rather than repeated under it. A plain difference is not suppressed:
+        # it is expected to be corrected, and a second one means the correction is
+        # not holding.
+        if (error or remaining is not None) and await _count_again(
+            session, instance.id, difference.payload_kind, summary, details, attempt_ms
         ):
             continue
         session.add(
@@ -447,6 +517,7 @@ async def reconcile_instance(
                 details=details,
                 # Per difference: a later push can fail after an earlier one succeeded.
                 corrected=difference.payload_kind in fixed,
+                took_ms=attempt_ms,
             )
         )
         logged.append(Difference(difference.payload_kind, summary, difference.details))
@@ -495,16 +566,18 @@ async def reconcile_all(session: AsyncSession, *, apply_fixes: bool = True) -> l
     result = await session.execute(
         select(Instance).where(Instance.enabled.is_(True)).order_by(Instance.id.asc())
     )
+    began = time.perf_counter()
     reports = []
     for instance in result.scalars().all():
         reports.append(await reconcile_instance(session, instance, apply_fixes=apply_fixes))
     # At DEBUG because it runs on a timer: the answer to "did it run at all" has
     # to exist somewhere, and it must not be in everyone's log every five minutes.
     logger.debug(
-        "Reconcile pass over %d instance(s), %d unreachable, %d with differences",
+        "Reconcile pass over %d instance(s), %d unreachable, %d with differences, %s",
         len(reports),
         sum(1 for item in reports if not item.checked),
         sum(1 for item in reports if item.differences),
+        human_ms(_ms_since(began)),
     )
     return reports
 

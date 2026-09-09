@@ -93,6 +93,12 @@ export interface DriftEvent {
   summary: string
   details: string
   corrected: boolean
+  /** How many passes have found exactly this. 1 unless it kept repeating. */
+  occurrences: number
+  /** When the last of those passes was. Null while it has only happened once. */
+  last_seen_at: string | null
+  /** The correction attempt's duration in ms; 0 when nothing was attempted. */
+  took_ms: number
   created_at: string
 }
 

@@ -146,6 +146,22 @@ best-effort-with-no-rollback rule the push path follows.
 Pushing continues throughout. A rule set is pushed whole, so holding it back over one refused
 line would strand every other line with it.
 
+Going quiet is not the same as forgetting, and it used to be. A held-back repeat is now counted
+on the entry that stands, so the row says how many passes have found exactly this and when the
+last of them was — while its own timestamp goes on answering the other question, *since when*.
+Without both, a fault repeating every five minutes and one that stopped this morning read
+identically, which is how one sat unnoticed for four hours.
+
+Each entry also carries how long its correction attempt took, end to end: the push plus the
+read-back that proves whether it landed. That number is the shortest route to a class of fault
+that otherwise takes weeks — a push reported as timing out is one thing, and a push reported as
+timing out *after exactly 10.0 s* names the setting that caused it. The same timings go into the
+hub's own log on every pass, including the passes that find nothing:
+
+```
+Reconcile node-b: 20 subscription(s) missing … [pull 84 ms, pass 10.2 s, filters 10.0 s]
+```
+
 *Clear log* on the dashboard empties the drift log by hand, for when a cause is fixed and the
 entries it left behind are noise rather than evidence — an upgrade that reported the same
 difference for a day, or a bug in the hub itself. It deletes the record, not the cause: a node
