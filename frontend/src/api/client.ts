@@ -17,6 +17,7 @@ import type {
   PushJob,
   QueryLogEntry,
   ReconcileReport,
+  ReconcileRun,
   Rule,
   RuleKind,
   RuleOrigin,
@@ -162,6 +163,8 @@ export const api = {
   jobs: (openOnly = true) => get<PushJob[]>(`/api/jobs${query({ open_only: openOnly })}`),
   retryJobs: () => post<{ recovered: number }>('/api/jobs/retry'),
   deleteJob: (id: number) => del(`/api/jobs/${id}`),
+  reconcileRuns: (limit = 20) =>
+    get<ReconcileRun[]>(`/api/reconcile/runs${query({ limit })}`),
   drift: (limit = 100) => get<DriftEvent[]>(`/api/drift${query({ limit })}`),
   clearDrift: () => del<{ deleted: number }>('/api/drift'),
 

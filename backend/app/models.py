@@ -279,6 +279,51 @@ class DriftEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class ReconcileRun(Base):
+    """What the reconciliation timer has been doing, including when it found nothing.
+
+    The drift log answers "what was wrong". It cannot answer "is the safety net
+    running at all", because a pass that finds nothing writes nothing — rightly,
+    since two nodes on a five-minute timer would otherwise put several hundred
+    rows a day into a table nobody would then read. So an empty drift log means
+    either a healthy fleet or a reconciler that stopped weeks ago, and until now
+    nothing anywhere told those two apart.
+
+    One row is a *streak*, not a pass: consecutive passes with the same outcome
+    are folded onto one row and counted. A healthy hub therefore holds a single
+    row saying "two nodes, nothing to correct, 4,032 passes since 15 August",
+    which answers both questions at once and costs one row a month instead of
+    three hundred a day. The moment the outcome changes — a node goes
+    unreachable, a difference appears — that row stops and a new one begins, so
+    the table reads as the history of what changed rather than a tape of what
+    did not.
+    """
+
+    __tablename__ = "reconcile_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    #: The first pass of this streak — "since when has it been like this".
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    #: The most recent pass of it — "is it still running".
+    last_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    passes: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+
+    # The outcome, and together the key the fold compares. Counts rather than
+    # names: which node it was is the drift log's job, and putting it here would
+    # make every streak one pass long the moment a name changed.
+    instances: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    unreachable: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    with_differences: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    corrected: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    out_of_sync: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+    #: The latest pass's duration, and the worst of the streak. The worst is the
+    #: one worth keeping: a pass that usually takes 80 ms and once took nine
+    #: seconds is a node that was nearly unreachable, and an average hides it.
+    last_took_ms: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    max_took_ms: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+
 class NotifierTarget(Base):
     """A webhook notification target (spec §10)."""
 

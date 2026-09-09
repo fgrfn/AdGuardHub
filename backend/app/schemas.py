@@ -423,6 +423,22 @@ class DriftEventOut(ORMModel):
     created_at: datetime
 
 
+class ReconcileRunOut(ORMModel):
+    """One streak of reconciliation passes that ended the same way."""
+
+    id: int
+    started_at: datetime
+    last_at: datetime
+    passes: int
+    instances: int
+    unreachable: int
+    with_differences: int
+    corrected: int
+    out_of_sync: int
+    last_took_ms: int
+    max_took_ms: int
+
+
 class SyncResult(BaseModel):
     instances: int
     failed: dict[str, str]

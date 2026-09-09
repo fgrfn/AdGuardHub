@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..adapters import AdapterError, RemoteFilterList, build_adapter
 from ..db import session_scope
-from ..models import DriftEvent, Instance, InstanceStatus, PayloadKind, utcnow
+from ..models import DriftEvent, Instance, InstanceStatus, PayloadKind, ReconcileRun, utcnow
 from ..runtime import get_crypto
 from . import driftarchive, hubsettings
 from .events import bus
@@ -33,7 +33,7 @@ from .notify import (
     notify,
     notify_if_recovered,
 )
-from .retention import prune_drift_events
+from .retention import prune_drift_events, prune_reconcile_runs
 from .sync import desired_filter_lists, desired_rules, desired_sections, push_kind, push_lock
 
 logger = logging.getLogger(__name__)
@@ -604,6 +604,48 @@ async def reconcile_instance(
     return report
 
 
+async def record_pass(
+    session: AsyncSession, reports: list[InstanceReport], took_ms: int
+) -> ReconcileRun:
+    """Fold this pass onto the standing streak, or start a new one.
+
+    Consecutive passes with the same outcome share a row and a counter. A
+    healthy hub therefore keeps one row saying "two nodes, nothing to correct,
+    4,032 passes since 15 August" rather than three hundred rows a day saying
+    nothing happened — and that one row is what tells a quiet drift log apart
+    from a reconciler that stopped weeks ago.
+    """
+    shape = {
+        "instances": len(reports),
+        "unreachable": sum(1 for item in reports if not item.checked),
+        "with_differences": sum(1 for item in reports if item.differences),
+        "corrected": sum(1 for item in reports if item.corrected),
+        "out_of_sync": sum(1 for item in reports if item.error and item.checked),
+    }
+    standing = (
+        (await session.execute(select(ReconcileRun).order_by(ReconcileRun.id.desc()).limit(1)))
+        .scalars()
+        .first()
+    )
+    if standing is not None and all(
+        getattr(standing, key) == value for key, value in shape.items()
+    ):
+        standing.passes += 1
+        standing.last_at = utcnow()
+        standing.last_took_ms = took_ms
+        # The worst of the streak, not the mean: a pass that usually takes 80 ms
+        # and once took nine seconds is a node that was nearly unreachable, and
+        # an average is exactly the statistic that hides it.
+        standing.max_took_ms = max(standing.max_took_ms, took_ms)
+        run = standing
+    else:
+        run = ReconcileRun(last_took_ms=took_ms, max_took_ms=took_ms, **shape)
+        session.add(run)
+    await session.commit()
+    await prune_reconcile_runs(session)
+    return run
+
+
 async def reconcile_all(session: AsyncSession, *, apply_fixes: bool = True) -> list[InstanceReport]:
     result = await session.execute(
         select(Instance).where(Instance.enabled.is_(True)).order_by(Instance.id.asc())
@@ -612,6 +654,13 @@ async def reconcile_all(session: AsyncSession, *, apply_fixes: bool = True) -> l
     reports = []
     for instance in result.scalars().all():
         reports.append(await reconcile_instance(session, instance, apply_fixes=apply_fixes))
+
+    # A dry run is deliberately not recorded. It attempted nothing, so folding it
+    # into the streak would let "nothing to correct" mean "nothing was tried" —
+    # and this table exists precisely to be trusted about whether the safety net
+    # is running.
+    if apply_fixes:
+        await record_pass(session, reports, _ms_since(began))
     # At DEBUG because it runs on a timer: the answer to "did it run at all" has
     # to exist somewhere, and it must not be in everyone's log every five minutes.
     logger.debug(
