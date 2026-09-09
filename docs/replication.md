@@ -129,11 +129,35 @@ that flaps for months is a different story:
 instance; dropping one would silently abandon a change that never reached a node, which is the
 exact failure the queue exists to prevent. Only jobs that already landed count as history.
 
+## How often the safety net runs
+
+**Nothing you do in the hub waits for this timer.** Whitelisting a domain from the query log,
+adding a rule, toggling a subscription — each is pushed to every instance the moment you press
+it, and the request does not even wait for the network to answer. A node that was unreachable
+is caught by the retry queue on its own, much shorter interval. So the reconciliation interval
+governs exactly one thing: how long a change somebody made **outside** the hub — in a node's
+native UI, or by a node coming back from downtime with stale state — can stand before it is
+found and corrected.
+
+The default is therefore **900 seconds**, not the five minutes it used to be. Fifteen minutes is
+ample for that job, while five meant re-reading both nodes' entire configuration 288 times a day
+to find nothing 287 of them. Where the timer *is* the mechanism — propagating your own changes —
+it was never the mechanism at all.
+
+You can set it under *Settings → Hub*, anywhere from 30 seconds to 24 hours; it takes effect on
+the next pass, with no restart. Two things worth knowing:
+
+- **An existing hub keeps the value it has.** A changed default seeds a fresh database and
+  nothing else. The stored number is your decision, and moving it underneath you is exactly the
+  silent kind of change this hub exists to avoid — so an upgrade leaves a hub set to 300 on 300.
+- **`ADGUARDHUB_RECONCILE_INTERVAL`** pre-fills it on first start, for a hub deployed from a
+  compose file. After that the UI owns it and the variable is ignored.
+
 ## Is the safety net running
 
 A reconciliation pass that finds nothing writes nothing to the drift log, which is right — two
-nodes on a five-minute timer would otherwise put several hundred rows a day into a table nobody
-would then read. The cost is that an **empty drift log means either a healthy fleet or a
+nodes on the timer would otherwise put a couple of hundred rows a day into a table nobody would
+then read, and several hundred at the interval this used to default to. The cost is that an **empty drift log means either a healthy fleet or a
 reconciler that stopped weeks ago**, and nothing on the dashboard told those two apart.
 
 Every pass is therefore recorded, including the quiet ones, and the *Reconciliation* card above
@@ -176,7 +200,7 @@ The hub did exactly what it is built to do, and its full state was nothing.
 
 So **reconciliation does not run until the hub holds something to replicate**: a rule, a
 subscription, or a managed section with something imported into it. Until then each pass is
-skipped, the reason is written to the hub's log once rather than every five minutes, and the
+skipped, the reason is written to the hub's log once rather than on every pass, and the
 *Reconciliation* card says **Nothing to replicate yet** rather than leaving an unconfigured hub
 looking like a timer that stopped. A manual pass is refused with the same sentence instead of
 answering "no drift found", which would be reassuring about precisely the wrong thing.
@@ -271,7 +295,7 @@ The retry queue has no equivalent, for the reason above.
 
 Sometimes a node is yours for an hour — you are upgrading AdGuard Home on it, moving it to
 another host, or testing something in its native UI. The hub's whole purpose works against you
-there: a push overwrites what you just did, and reconciliation puts it back within five minutes.
+there: a push overwrites what you just did, and reconciliation puts it back on its next pass.
 
 *Instances → ⋯ → Start maintenance* stops both for that one node. It keeps answering DNS the
 entire time; nothing about maintenance touches what the node is actually doing for your network.

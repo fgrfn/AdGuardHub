@@ -82,7 +82,7 @@
   "How many aggregated entries are kept in memory. Nothing is written to disk.",
   "How often a queued push to an unreachable instance is retried.",
   "How often each instance is polled for new log entries. Lower means more requests.",
-  "How often every instance is compared against the hub and corrected.",
+  "How often every instance is compared against the hub and corrected. Your own changes do not wait for this — they are pushed the moment you make them.",
   "How the upstreams above are used for each query.",
   "Ignored domains",
   "import",

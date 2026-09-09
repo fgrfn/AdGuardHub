@@ -16,7 +16,7 @@ const TIMERS: NumberFieldSpec[] = [
   {
     key: 'reconcile_interval',
     label: 'Reconciliation interval',
-    hint: 'How often every instance is compared against the hub and corrected.',
+    hint: 'How often every instance is compared against the hub and corrected. Your own changes do not wait for this — they are pushed the moment you make them.',
     unit: 'seconds',
   },
   {

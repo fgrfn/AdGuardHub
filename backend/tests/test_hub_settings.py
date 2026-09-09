@@ -10,20 +10,23 @@ from app.services.querylog import buffer
 
 async def test_defaults_come_from_the_environment(auth_client: httpx.AsyncClient) -> None:
     values = (await auth_client.get("/api/settings/hub")).json()
-    assert values["reconcile_interval"] == 300
+    # Fifteen minutes: propagation rides on the instant push, not on this timer,
+    # so what is left for it is drift caused outside the hub.
+    assert values["reconcile_interval"] == 900
     assert values["reconcile_enabled"] is True
     assert values["limits"]["reconcile_interval"] == [30, 86400]
 
 
 async def test_changes_take_effect_without_a_restart(auth_client: httpx.AsyncClient) -> None:
     """The workers read the cache each cycle, so the process must see the new value."""
+    # Deliberately not the default, or this asserts nothing.
     response = await auth_client.put(
-        "/api/settings/hub", json={"reconcile_interval": 900, "retry_interval": 60}
+        "/api/settings/hub", json={"reconcile_interval": 1200, "retry_interval": 60}
     )
     assert response.status_code == 200
-    assert response.json()["reconcile_interval"] == 900
+    assert response.json()["reconcile_interval"] == 1200
 
-    assert hubsettings.current().reconcile_interval == 900
+    assert hubsettings.current().reconcile_interval == 1200
     assert hubsettings.current().retry_interval == 60
 
 
