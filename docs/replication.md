@@ -93,10 +93,44 @@ that flaps for months is a different story:
 | Version history | 200 | Enough to roll back through a bad week |
 | Drift log | 500 | What `/api/drift` will serve in one request at most |
 | Applied push jobs | 500 | Same, for `/api/jobs` |
+| Reconciliation runs | 500 | 500 *streaks*, not passes — see below |
 
 **The retry queue is never trimmed.** A pending or failed job is work still owed to an
 instance; dropping one would silently abandon a change that never reached a node, which is the
 exact failure the queue exists to prevent. Only jobs that already landed count as history.
+
+## Is the safety net running
+
+A reconciliation pass that finds nothing writes nothing to the drift log, which is right — two
+nodes on a five-minute timer would otherwise put several hundred rows a day into a table nobody
+would then read. The cost is that an **empty drift log means either a healthy fleet or a
+reconciler that stopped weeks ago**, and nothing on the dashboard told those two apart.
+
+Every pass is therefore recorded, including the quiet ones, and the *Reconciliation* card above
+the drift log reads it back. One row there is a **streak**, not a pass: consecutive passes that
+ended the same way share a row and a counter, so a healthy hub holds a single line —
+
+> **Nothing to correct** · 4,032 passes over 2 node(s)
+> | Since | Last pass | Passes | Outcome | Duration |
+> | --- | --- | --- | --- | --- |
+> | 15 Aug, 19:44 | today, 00:38 | 4,032 | nothing to correct | 84 ms · worst 9.2 s |
+
+— rather than three hundred rows a day saying nothing happened. The moment the outcome changes
+the streak ends and a new row begins, so the table reads as the history of what changed. That is
+why 500 rows is a long history here and about two days elsewhere.
+
+The duration column keeps the **worst** pass of the streak beside the latest, not an average: a
+pass that usually takes 84 ms and once took nine seconds is a node that was nearly unreachable,
+and a mean is precisely the statistic that hides it.
+
+The headline says **Reconciliation may have stopped** once the last pass is older than three
+intervals. Three rather than one: a single late pass is a slow node, a restart, or a pass that
+ran long, and a panel that goes red for those is one people stop reading. A reconciler the
+operator switched off says so instead — that is a decision, not a fault.
+
+A dry run (*apply_fixes=false*) is deliberately not recorded. It attempted nothing, so folding it
+in would let "nothing to correct" mean "nothing was tried", in the one table built to be trusted
+about whether the safety net is running.
 
 ## When a correction does not hold
 

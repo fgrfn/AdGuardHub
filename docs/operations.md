@@ -8,13 +8,15 @@
 
 ## Logs
 
-Two different things are called a log here, and they are not the same:
+Three different things are called a log here, and they are not the same:
 
 - **The query log** is DNS traffic — what your clients asked for, aggregated across every
   instance. It lives in the UI and is what you use day to day.
 - **The application log** is the hub talking about itself: what it did on start, a push that
   failed, a wrong password. It goes to stderr, so `docker logs adguardhub` (or
   `docker compose logs -f`) reads it back.
+- **The drift archive** is every reconciliation finding, written to a file as it happens. See
+  [The drift archive](#the-drift-archive) below.
 
 The last 500 lines are also readable in the interface under *Settings → Log*, which follows
 along live. That is a window, not a replacement: it lives in memory, is cleared on restart, and
@@ -58,6 +60,42 @@ be written, the hub says so and carries on with stderr rather than refusing to s
 Docker's default json-file driver keeps that copy **without any size limit**, which on a
 long-running hub is a disk that fills quietly. The `logging:` block in the
 [Compose example](install.md#docker-compose) caps it at three files of 10 MB; keep it.
+
+## The drift archive
+
+The drift log on the dashboard is built to stay readable: 500 rows at most, one entry per
+finding however often it repeats, rule lists cut to 25 items, and a *Clear log* button that
+empties it. Every one of those is right for a live view and wrong for evidence — by the time
+you sit down to work out when a fault started, the rows that would have said so are the ones
+that went.
+
+So each finding is also appended to `drift.log` beside the database, once per pass, untrimmed,
+in the order it happened. One JSON object per line:
+
+```json
+{"at": "2026-09-08T19:44:02Z", "instance": "node-b", "payload_kind": "filters",
+ "summary": "20 subscription(s) missing … — the correction could not be pushed: …",
+ "corrected": false, "took_ms": 10004, "details": {"missing": ["blocklist:https://…"]}}
+```
+
+That format survives being grepped, tailed, piped through `jq` and pasted into an issue, and a
+later version can add a field to it without invalidating what is already written.
+
+*Settings → Log → Drift archive* reads it back, newest first, a page at a time. Unlike the
+application log beside it, it is not followed live: it is history, and history does not need a
+two-second refresh.
+
+**It is on by default**, unlike the application log file above, and that is the point — an
+archive nobody switched on is empty exactly when they discover they needed it. It costs a line
+only when something drifts, so a healthy hub writes nothing for weeks. It rotates at 2 MB with
+three backups, and `ADGUARDHUB_DRIFT_LOG_ENABLED=false` turns it off for a deployment that
+would rather not write to its flash at all. A path that cannot be written is reported and
+survived, like the application log file.
+
+The archive is **not** redacted — it names your nodes and carries the domains in a finding,
+because it is a file on your own disk. The [diagnostic bundle](#reporting-a-problem) is the
+one built to be handed to someone else; do not paste the archive into a public issue without
+reading it first.
 
 ## Reporting a problem
 

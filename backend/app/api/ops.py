@@ -17,6 +17,7 @@ from ..models import (
     InstanceStatus,
     JobStatus,
     PushJob,
+    ReconcileRun,
     Rule,
     RuleKind,
 )
@@ -25,6 +26,7 @@ from ..schemas import (
     DriftEventOut,
     PushJobOut,
     ReconcileReportOut,
+    ReconcileRunOut,
     SyncResult,
     TrafficOut,
 )
@@ -132,6 +134,7 @@ async def run_reconcile(
             error=report.error,
             corrected=report.corrected,
             differences=[asdict(difference) for difference in report.differences],
+            took_ms=report.took_ms,
         )
         for report in reports
     ]
@@ -189,6 +192,27 @@ async def list_drift(
 ) -> list[DriftEvent]:
     result = await session.execute(
         select(DriftEvent).order_by(DriftEvent.id.desc()).limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+@router.get("/reconcile/runs", response_model=list[ReconcileRunOut])
+async def list_reconcile_runs(
+    _: CurrentUser, session: SessionDep, limit: int = Query(50, ge=1, le=500)
+) -> list[ReconcileRun]:
+    """What the reconciliation timer has been doing, newest first.
+
+    The drift log answers "what was wrong". It cannot answer "is the safety net
+    running at all", because a pass that finds nothing writes nothing — so an
+    empty drift log means either a healthy fleet or a reconciler that stopped
+    weeks ago. These rows tell those two apart.
+
+    One row is a streak of consecutive passes with the same outcome, not one
+    pass, so a healthy hub answers with a single row rather than a tape of three
+    hundred a day saying nothing happened.
+    """
+    result = await session.execute(
+        select(ReconcileRun).order_by(ReconcileRun.id.desc()).limit(limit)
     )
     return list(result.scalars().all())
 

@@ -764,6 +764,17 @@ label {
   background: #d9605a;
 }
 
+/* The same dot outside the pill, where the tone is on the dot itself rather
+   than inherited from a parent — used by the reconciliation card. Tokens
+   rather than the literals above, so it follows the theme. */
+.sync-dot.warn {
+  background: var(--warn);
+}
+
+.sync-dot.bad {
+  background: var(--danger);
+}
+
 .sync-panel {
   position: absolute;
   right: 0;

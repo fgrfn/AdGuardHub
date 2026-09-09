@@ -18,10 +18,16 @@ from __future__ import annotations
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import DriftEvent, JobStatus, PushJob
+from ..models import DriftEvent, JobStatus, PushJob, ReconcileRun
 
 MAX_DRIFT_EVENTS = 500
 MAX_APPLIED_JOBS = 500
+
+# Reconciliation streaks, not passes: consecutive passes with the same outcome
+# share a row, so a healthy hub adds one row a month rather than three hundred a
+# day. 500 of them is a long history of everything that actually changed — which
+# is why this cap is the same number without meaning the same thing.
+MAX_RECONCILE_RUNS = 500
 
 
 async def _prune(session: AsyncSession, model: type, cap: int, *conditions) -> int:
@@ -53,6 +59,10 @@ async def _prune(session: AsyncSession, model: type, cap: int, *conditions) -> i
 
 async def prune_drift_events(session: AsyncSession) -> int:
     return await _prune(session, DriftEvent, MAX_DRIFT_EVENTS)
+
+
+async def prune_reconcile_runs(session: AsyncSession) -> int:
+    return await _prune(session, ReconcileRun, MAX_RECONCILE_RUNS)
 
 
 async def prune_applied_jobs(session: AsyncSession) -> int:

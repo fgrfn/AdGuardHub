@@ -23,9 +23,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..adapters import AdapterError, RemoteFilterList, build_adapter
 from ..db import session_scope
-from ..models import DriftEvent, Instance, InstanceStatus, PayloadKind, utcnow
+from ..models import DriftEvent, Instance, InstanceStatus, PayloadKind, ReconcileRun, utcnow
 from ..runtime import get_crypto
-from . import hubsettings
+from . import driftarchive, hubsettings
 from .events import bus
 from .notify import (
     EVENT_INSTANCE_UNREACHABLE,
@@ -33,7 +33,7 @@ from .notify import (
     notify,
     notify_if_recovered,
 )
-from .retention import prune_drift_events
+from .retention import prune_drift_events, prune_reconcile_runs
 from .sync import desired_filter_lists, desired_rules, desired_sections, push_kind, push_lock
 
 logger = logging.getLogger(__name__)
@@ -71,7 +71,22 @@ def human_ms(ms: int) -> str:
 class Difference:
     payload_kind: str
     summary: str
+    #: What the drift row and the interface get: capped at MAX_DETAIL_ITEMS, so
+    #: a node missing four thousand rules does not put four thousand strings in
+    #: a table cell or an API response.
     details: dict[str, Any] = field(default_factory=dict)
+    #: The same finding with nothing left out, for the archive on disk. Empty
+    #: when nothing was trimmed, in which case ``details`` is already complete —
+    #: only rules are ever capped.
+    #:
+    #: Two fields rather than trimming at each edge: `details` is compared
+    #: verbatim to decide whether a finding is the one already logged, so the
+    #: value that is written must be the value that is compared.
+    full_details: dict[str, Any] = field(default_factory=dict)
+
+    def archived(self) -> dict[str, Any]:
+        """The finding as the archive should keep it — the cap is a view, not the truth."""
+        return self.full_details or self.details
 
 
 @dataclass(slots=True)
@@ -95,13 +110,20 @@ def _trim(items: list[str]) -> list[str]:
 def diff_rules(expected: list[str], actual: list[str]) -> Difference | None:
     if expected == actual:
         return None
-    missing = _trim([rule for rule in expected if rule not in set(actual)])
-    extra = _trim([rule for rule in actual if rule not in set(expected)])
+    missing = [rule for rule in expected if rule not in set(actual)]
+    extra = [rule for rule in actual if rule not in set(expected)]
     if missing or extra:
+        # Counted before the cap. "25 rule(s) missing" on a node that has lost
+        # four thousand of them would be a wrong number, not a shortened one.
         summary = f"{len(missing)} rule(s) missing, {len(extra)} unexpected rule(s)"
     else:
         summary = "rules present but in a different order"
-    return Difference(PayloadKind.rules.value, summary, {"missing": missing, "extra": extra})
+    return Difference(
+        PayloadKind.rules.value,
+        summary,
+        {"missing": _trim(missing), "extra": _trim(extra)},
+        {"missing": missing, "extra": extra},
+    )
 
 
 def _list_key(item: RemoteFilterList) -> tuple[str, str]:
@@ -484,6 +506,7 @@ async def reconcile_instance(
         remaining = refused.get(difference.payload_kind)
         error = failed.get(difference.payload_kind)
         details = json.dumps(difference.details, default=str)
+        archived = difference.archived()
         if error:
             # The reason belongs in the row. It was going into report.error,
             # which nothing persists, so a pass that tried and could not push
@@ -498,7 +521,26 @@ async def reconcile_instance(
             # know that rather than watch it repeat.
             summary = f"the node did not keep this correction — {remaining.summary}"
             details = json.dumps(remaining.details, default=str)
+            archived = remaining.archived()
         attempt_ms = took.get(difference.payload_kind, 0)
+
+        # Archived before the fold below, and that ordering is the point: the
+        # database keeps one row per finding so the live view stays readable,
+        # while the archive keeps one line per pass so the sequence survives —
+        # every sighting, in order, with the rule lists untrimmed. Also before
+        # the 500-row cap and before *Clear log*, neither of which reaches a file.
+        driftarchive.record(
+            {
+                "at": utcnow().isoformat().replace("+00:00", "Z"),
+                "instance": instance.name,
+                "payload_kind": difference.payload_kind,
+                "summary": summary,
+                "corrected": difference.payload_kind in fixed,
+                "took_ms": attempt_ms,
+                "details": archived,
+            }
+        )
+
         # A refusal and a failing push both repeat on every run by definition, so
         # each is stated once and again when it changes — counted on the standing
         # row rather than repeated under it. A plain difference is not suppressed:
@@ -562,6 +604,48 @@ async def reconcile_instance(
     return report
 
 
+async def record_pass(
+    session: AsyncSession, reports: list[InstanceReport], took_ms: int
+) -> ReconcileRun:
+    """Fold this pass onto the standing streak, or start a new one.
+
+    Consecutive passes with the same outcome share a row and a counter. A
+    healthy hub therefore keeps one row saying "two nodes, nothing to correct,
+    4,032 passes since 15 August" rather than three hundred rows a day saying
+    nothing happened — and that one row is what tells a quiet drift log apart
+    from a reconciler that stopped weeks ago.
+    """
+    shape = {
+        "instances": len(reports),
+        "unreachable": sum(1 for item in reports if not item.checked),
+        "with_differences": sum(1 for item in reports if item.differences),
+        "corrected": sum(1 for item in reports if item.corrected),
+        "out_of_sync": sum(1 for item in reports if item.error and item.checked),
+    }
+    standing = (
+        (await session.execute(select(ReconcileRun).order_by(ReconcileRun.id.desc()).limit(1)))
+        .scalars()
+        .first()
+    )
+    if standing is not None and all(
+        getattr(standing, key) == value for key, value in shape.items()
+    ):
+        standing.passes += 1
+        standing.last_at = utcnow()
+        standing.last_took_ms = took_ms
+        # The worst of the streak, not the mean: a pass that usually takes 80 ms
+        # and once took nine seconds is a node that was nearly unreachable, and
+        # an average is exactly the statistic that hides it.
+        standing.max_took_ms = max(standing.max_took_ms, took_ms)
+        run = standing
+    else:
+        run = ReconcileRun(last_took_ms=took_ms, max_took_ms=took_ms, **shape)
+        session.add(run)
+    await session.commit()
+    await prune_reconcile_runs(session)
+    return run
+
+
 async def reconcile_all(session: AsyncSession, *, apply_fixes: bool = True) -> list[InstanceReport]:
     result = await session.execute(
         select(Instance).where(Instance.enabled.is_(True)).order_by(Instance.id.asc())
@@ -570,6 +654,13 @@ async def reconcile_all(session: AsyncSession, *, apply_fixes: bool = True) -> l
     reports = []
     for instance in result.scalars().all():
         reports.append(await reconcile_instance(session, instance, apply_fixes=apply_fixes))
+
+    # A dry run is deliberately not recorded. It attempted nothing, so folding it
+    # into the streak would let "nothing to correct" mean "nothing was tried" —
+    # and this table exists precisely to be trusted about whether the safety net
+    # is running.
+    if apply_fixes:
+        await record_pass(session, reports, _ms_since(began))
     # At DEBUG because it runs on a timer: the answer to "did it run at all" has
     # to exist somewhere, and it must not be in everyone's log every five minutes.
     logger.debug(

@@ -36,6 +36,7 @@ from .models import User
 from .runtime import using_ephemeral_secret
 from .security import SecretKeyError, hash_password, verify_password
 from .services import hubsettings
+from .services.driftarchive import configure as configure_drift_archive
 from .services.events import bus
 from .services.querylog import querylog_worker
 from .services.reconcile import reconcile_worker
@@ -48,6 +49,13 @@ configure_logging(
     log_file=_settings.log_file,
     max_bytes=_settings.log_file_max_bytes,
     backups=_settings.log_file_backups,
+)
+# After the handlers exist, so a path that cannot be opened is reported through
+# them rather than into a logger nothing is listening to yet.
+configure_drift_archive(
+    _settings.drift_log_path,
+    max_bytes=_settings.drift_log_max_bytes,
+    backups=_settings.drift_log_backups,
 )
 logger = logging.getLogger("adguardhub")
 

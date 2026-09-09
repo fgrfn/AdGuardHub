@@ -5,6 +5,7 @@ import type { DriftEvent, Instance, PushJob, ReconcileReport, Traffic } from '..
 import { Badge, Banner, Card, Empty, PageHeader } from '../components/ui'
 import { BlockRateRing, RankList, SeriesChart } from '../components/charts'
 import { DriftFacts } from '../components/DriftFacts'
+import { ReconcileRuns } from '../components/ReconcileRuns'
 import { formatCount, formatTime } from '../format'
 import { errorMessage, useResource } from '../hooks/useApi'
 import { NodeUpdate } from '../components/NodeUpdate'
@@ -433,6 +434,11 @@ export default function Dashboard() {
           </div>
         </Card>
       ) : null}
+
+      {/* Above the drift log, because it settles the question the drift log
+          cannot: an empty one is either a healthy fleet or a reconciler that
+          stopped, and those used to render identically. */}
+      <ReconcileRuns />
 
       <Card
         title={t('Drift log')}

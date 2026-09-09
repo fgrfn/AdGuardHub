@@ -4,6 +4,7 @@ import type {
   ConfigSection,
   ConnectionResult,
   DashboardStats,
+  DriftArchivePage,
   DriftEvent,
   FilterList,
   FilterSizes,
@@ -16,6 +17,7 @@ import type {
   PushJob,
   QueryLogEntry,
   ReconcileReport,
+  ReconcileRun,
   Rule,
   RuleKind,
   RuleOrigin,
@@ -161,6 +163,8 @@ export const api = {
   jobs: (openOnly = true) => get<PushJob[]>(`/api/jobs${query({ open_only: openOnly })}`),
   retryJobs: () => post<{ recovered: number }>('/api/jobs/retry'),
   deleteJob: (id: number) => del(`/api/jobs/${id}`),
+  reconcileRuns: (limit = 20) =>
+    get<ReconcileRun[]>(`/api/reconcile/runs${query({ limit })}`),
   drift: (limit = 100) => get<DriftEvent[]>(`/api/drift${query({ limit })}`),
   clearDrift: () => del<{ deleted: number }>('/api/drift'),
 
@@ -185,6 +189,8 @@ export const api = {
   updateStatus: (force = false) =>
     get<UpdateStatus>(`/api/settings/update${query({ force })}`),
   log: (cursor = 0) => get<LogPage>(`/api/settings/log${query({ cursor })}`),
+  driftArchive: (after = 0, limit = 100) =>
+    get<DriftArchivePage>(`/api/settings/drift-archive${query({ after, limit })}`),
   updateRun: () => get<UpdateRun>('/api/settings/update/run'),
   startUpdate: () => post<UpdateRun>('/api/settings/update/run'),
 

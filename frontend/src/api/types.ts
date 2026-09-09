@@ -294,6 +294,30 @@ export interface HubSettings {
   limits: Record<string, [number, number]>
 }
 
+/**
+ * One streak of reconciliation passes that ended the same way.
+ *
+ * A row is a streak, not a pass: consecutive passes with the same outcome are
+ * folded and counted, so a healthy hub answers with one row rather than three
+ * hundred a day saying nothing happened.
+ */
+export interface ReconcileRun {
+  id: number
+  /** The first pass of the streak — since when it has been like this. */
+  started_at: string
+  /** The most recent one — whether the timer is still running. */
+  last_at: string
+  passes: number
+  instances: number
+  unreachable: number
+  with_differences: number
+  corrected: number
+  out_of_sync: number
+  last_took_ms: number
+  /** The worst pass of the streak; an average would hide the outlier. */
+  max_took_ms: number
+}
+
 /** One refused sign-in, as Settings shows it. */
 export interface FailedSignIn {
   source: string
@@ -354,4 +378,26 @@ export interface LogPage {
   cursor: number
   latest: number
   capacity: number
+}
+
+/** One archived reconciliation finding, as written to disk when it happened. */
+export interface DriftArchiveEntry {
+  /** Position counted back from the newest entry — the paging cursor. */
+  offset: number
+  at: string
+  instance: string
+  payload_kind: string
+  summary: string
+  corrected: boolean
+  took_ms: number
+  /** Untrimmed, unlike the drift table's: the file has no reason to cap it. */
+  details: Record<string, unknown>
+}
+
+export interface DriftArchivePage {
+  entries: DriftArchiveEntry[]
+  /** Whether anything older sits behind this page. */
+  more: boolean
+  /** False when the archive is switched off, so the page can say so. */
+  enabled: boolean
 }
