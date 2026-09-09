@@ -36,12 +36,24 @@ async def reconcile(client: httpx.AsyncClient) -> None:
     assert (await client.post("/api/reconcile")).status_code == 200
 
 
+async def a_configured_hub(client: httpx.AsyncClient) -> None:
+    """One rule in the hub, and every node holding it.
+
+    Reconciliation skips a hub with nothing to replicate — an empty desired state
+    pushed as full state would clear the nodes — so a test about what the passes
+    record needs something for the passes to compare against.
+    """
+    created = await client.post("/api/rules", json={"text": "||ads.example.com^"})
+    assert created.status_code == 201
+    await drain_background()
+
+
 async def test_a_quiet_pass_is_recorded_even_though_it_logs_no_drift(
     auth_client: httpx.AsyncClient,
 ) -> None:
     """The whole point. An empty drift log is now a provable state, not an ambiguous one."""
     await add_instance(auth_client, "a", A)
-    await drain_background()
+    await a_configured_hub(auth_client)
 
     await reconcile(auth_client)
 
@@ -55,7 +67,7 @@ async def test_a_quiet_pass_is_recorded_even_though_it_logs_no_drift(
 async def test_quiet_passes_fold_onto_one_row(auth_client: httpx.AsyncClient) -> None:
     """Three hundred rows a day saying nothing happened is how a table stops being read."""
     await add_instance(auth_client, "a", A)
-    await drain_background()
+    await a_configured_hub(auth_client)
 
     for _ in range(5):
         await reconcile(auth_client)
@@ -70,7 +82,7 @@ async def test_the_row_says_since_when_and_whether_it_is_still_running(
 ) -> None:
     """Two questions, two timestamps. started_at must not move."""
     await add_instance(auth_client, "a", A)
-    await drain_background()
+    await a_configured_hub(auth_client)
 
     await reconcile(auth_client)
     began = (await runs())[0].started_at
@@ -86,7 +98,7 @@ async def test_an_outcome_that_changes_starts_a_new_row(
 ) -> None:
     """The table is the history of what changed, not a tape of what did not."""
     await add_instance(auth_client, "a", A)
-    await drain_background()
+    await a_configured_hub(auth_client)
     await reconcile(auth_client)
 
     FakeAdapter.state_for(A).rules = ["||somebody-edited-the-node^"]
@@ -103,7 +115,7 @@ async def test_a_node_going_unreachable_starts_a_new_row(
 ) -> None:
     """The state changed, so the streak did — even though nothing drifted."""
     await add_instance(auth_client, "a", A)
-    await drain_background()
+    await a_configured_hub(auth_client)
     await reconcile(auth_client)
 
     FakeAdapter.state_for(A).offline = True
@@ -120,7 +132,7 @@ async def test_the_worst_pass_of_a_streak_is_kept_not_the_average(
     """A pass that usually takes 80 ms and once took nine seconds is a node that
     was nearly unreachable, and a mean is exactly the statistic that hides it."""
     await add_instance(auth_client, "a", A)
-    await drain_background()
+    await a_configured_hub(auth_client)
     await reconcile(auth_client)
 
     async with session_scope() as session:
@@ -141,7 +153,7 @@ async def test_a_dry_run_is_not_recorded(auth_client: httpx.AsyncClient) -> None
     mean "nothing was tried" — in the one table built to be trusted about
     whether the safety net is running."""
     await add_instance(auth_client, "a", A)
-    await drain_background()
+    await a_configured_hub(auth_client)
 
     assert (await auth_client.post("/api/reconcile?apply_fixes=false")).status_code == 200
 
@@ -151,7 +163,7 @@ async def test_a_dry_run_is_not_recorded(auth_client: httpx.AsyncClient) -> None
 async def test_the_api_serves_them_newest_first(auth_client: httpx.AsyncClient) -> None:
     await add_instance(auth_client, "a", A)
     await add_instance(auth_client, "b", B)
-    await drain_background()
+    await a_configured_hub(auth_client)
     await reconcile(auth_client)
     FakeAdapter.state_for(A).offline = True
     await reconcile(auth_client)

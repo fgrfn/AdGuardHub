@@ -56,7 +56,7 @@ const ago = (seconds: number) => new Date(NOW - seconds * 1000).toISOString()
 
 describe('verdict', () => {
   it('says a quiet fleet is quiet, which an empty drift log could not', () => {
-    const result = verdict([run()], settings(), t, NOW)
+    const result = verdict([run()], settings(), t, { now: NOW })
     expect(result.tone).toBe('ok')
     expect(result.headline).toBe('Nothing to correct')
     expect(result.detail).toContain('60 passes')
@@ -69,7 +69,7 @@ describe('verdict', () => {
       [run({ last_at: ago(INTERVAL * (STALE_AFTER_INTERVALS + 1)) })],
       settings(),
       t,
-      NOW,
+      { now: NOW },
     )
     expect(result.tone).toBe('bad')
     expect(result.headline).toBe('Reconciliation may have stopped')
@@ -79,7 +79,7 @@ describe('verdict', () => {
     // One missed pass is a slow node, a restart, or a pass that ran long. At 1×
     // this panel would go red routinely, and a panel that goes red routinely is
     // one people stop reading.
-    const result = verdict([run({ last_at: ago(INTERVAL + 30) })], settings(), t, NOW)
+    const result = verdict([run({ last_at: ago(INTERVAL + 30) })], settings(), t, { now: NOW })
     expect(result.tone).toBe('ok')
   })
 
@@ -90,7 +90,7 @@ describe('verdict', () => {
       [run({ last_at: ago(86_400) })],
       settings({ reconcile_enabled: false }),
       t,
-      NOW,
+      { now: NOW },
     )
     expect(result.tone).toBe('warn')
     expect(result.headline).toBe('Reconciliation is switched off')
@@ -101,7 +101,7 @@ describe('verdict', () => {
       [run({ unreachable: 1, with_differences: 1 })],
       settings(),
       t,
-      NOW,
+      { now: NOW },
     )
     expect(result.headline).toBe('1 node(s) unreachable')
   })
@@ -113,25 +113,44 @@ describe('verdict', () => {
       [run({ out_of_sync: 1, with_differences: 1 })],
       settings(),
       t,
-      NOW,
+      { now: NOW },
     )
     expect(result.tone).toBe('bad')
     expect(result.headline).toBe('1 correction(s) could not be pushed')
   })
 
   it('treats drift that is being corrected as a warning, not a failure', () => {
-    const result = verdict([run({ with_differences: 1, corrected: 1 })], settings(), t, NOW)
+    const result = verdict([run({ with_differences: 1, corrected: 1 })], settings(), t, { now: NOW })
     expect(result.tone).toBe('warn')
     expect(result.headline).toBe('Correcting drift on 1 node(s)')
   })
 
+  it('says an empty hub has nothing to replicate, ahead of everything else', () => {
+    // The state this whole gate exists for: a hub nobody finished setting up has
+    // an empty desired state, and full-state pushes read empty as "clear them".
+    // It skips its passes on purpose, so the card must not report a stopped
+    // timer — and must not report a healthy fleet either.
+    const result = verdict([run({ last_at: ago(86_400) })], settings(), t, {
+      now: NOW,
+      replicating: false,
+    })
+    expect(result.tone).toBe('warn')
+    expect(result.headline).toBe('Nothing to replicate yet')
+  })
+
+  it('assumes the hub is replicating while the dashboard is still loading', () => {
+    // A card mid-load must not accuse the reconciler of skipping.
+    const result = verdict([run()], settings(), t, { now: NOW, replicating: null })
+    expect(result.headline).toBe('Nothing to correct')
+  })
+
   it('says nothing has run yet rather than inventing a state', () => {
-    expect(verdict([], settings(), t, NOW).headline).toBe('No pass recorded yet')
+    expect(verdict([], settings(), t, { now: NOW }).headline).toBe('No pass recorded yet')
   })
 
   it('waits rather than guessing while the data is still loading', () => {
-    expect(verdict(null, settings(), t, NOW).headline).toBe('Checking…')
-    expect(verdict([run()], null, t, NOW).headline).toBe('Checking…')
+    expect(verdict(null, settings(), t, { now: NOW }).headline).toBe('Checking…')
+    expect(verdict([run()], null, t, { now: NOW }).headline).toBe('Checking…')
   })
 })
 

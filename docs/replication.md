@@ -162,6 +162,41 @@ A dry run (*apply_fixes=false*) is deliberately not recorded. It attempted nothi
 in would let "nothing to correct" mean "nothing was tried", in the one table built to be trusted
 about whether the safety net is running.
 
+## A hub with nothing in it replicates nothing
+
+Every push is *full state*: the hub computes what a node should hold and replaces the node's
+managed config with it. That is what makes pushes idempotent and removes any need for merges —
+and it means an **empty** central state is not a neutral value. Read literally, it says "these
+nodes should hold nothing", and reconciliation would carry that out on its timer.
+
+It has: a second AdGuardHub, started to try something out and left standing on step 1 of the
+onboarding wizard with a production node already entered, emptied that node of every rule and
+every subscription — then again five minutes later, and for days. Nothing was misconfigured.
+The hub did exactly what it is built to do, and its full state was nothing.
+
+So **reconciliation does not run until the hub holds something to replicate**: a rule, a
+subscription, or a managed section with something imported into it. Until then each pass is
+skipped, the reason is written to the hub's log once rather than every five minutes, and the
+*Reconciliation* card says **Nothing to replicate yet** rather than leaving an unconfigured hub
+looking like a timer that stopped. A manual pass is refused with the same sentence instead of
+answering "no drift found", which would be reassuring about precisely the wrong thing.
+
+Three things follow from where that gate sits, each of them deliberate:
+
+- **The push is not gated.** Deleting your last rule *produces* an empty desired state, and that
+  deletion has to reach the nodes. A hub that refused to push it would abandon the one change
+  the operator most certainly meant, and consider the work done.
+- **A rule that is switched off still counts.** Turning every rule off is a decision, and it is
+  the nodes' job to hold the result. Counting only enabled rules would stand the safety net down
+  at the exact moment it was needed.
+- **A section switched on but never imported does not count.** The wizard turns sections on
+  before the master import fills them, so treating that intermediate step as "configured" would
+  put the gate back on the wrong side of the screen this fault was found behind.
+
+*Instances → ⋯ → Push now* is not gated either. It is a button someone presses while looking at
+one node, which is a different thing from a timer acting on its own — but on an empty hub it
+still means "make this node hold nothing", so it is the one place the old behaviour remains.
+
 ## When a correction does not hold
 
 Reconciliation corrects a difference by pushing the hub's state and then **reads it back**. A

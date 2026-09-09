@@ -39,13 +39,39 @@ export interface Strings {
   (text: string, vars?: Record<string, string | number>): string
 }
 
+export interface Options {
+  now?: number
+  /**
+   * Whether the hub holds anything to replicate, from `/api/dashboard`.
+   * `null` while it is still loading — treated as "assume it does", so a card
+   * mid-load never accuses the reconciler of skipping.
+   */
+  replicating?: boolean | null
+}
+
 export function verdict(
   runs: ReconcileRun[] | null,
   settings: HubSettings | null,
   t: Strings,
-  now: number = Date.now(),
+  { now = Date.now(), replicating = null }: Options = {},
 ): Verdict {
   if (!runs || !settings) return { tone: 'ok', headline: t('Checking…'), detail: '' }
+
+  // Before everything, including "switched off": a hub with no rule, no
+  // subscription and no populated managed section has an empty desired state,
+  // and since every push is full state, reconciling against it would clear the
+  // nodes. So it does not run — and saying that plainly is the whole point,
+  // because the alternative is a stopped-looking timer with no explanation on a
+  // hub that is merely new.
+  if (replicating === false) {
+    return {
+      tone: 'warn',
+      headline: t('Nothing to replicate yet'),
+      detail: t(
+        'The hub holds no rule, no subscription and no imported settings, so it is not comparing your nodes against it. Reconciliation starts with the first of them.',
+      ),
+    }
+  }
 
   // Before staleness: a timer that was switched off is not a timer that broke,
   // and reporting the second when the operator did the first is how a panel

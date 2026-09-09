@@ -12,7 +12,7 @@
  * a day saying nothing happened.
  */
 
-import type { HubSettings, ReconcileRun } from '../api/types'
+import type { DashboardStats, HubSettings, ReconcileRun } from '../api/types'
 import { api } from '../api/client'
 import { formatCount, formatDuration, formatTime } from '../format'
 import { useResource } from '../hooks/useApi'
@@ -24,8 +24,14 @@ export function ReconcileRuns() {
   const t = useT()
   const runs = useResource<ReconcileRun[]>(() => api.reconcileRuns())
   const settings = useResource<HubSettings>(() => api.hubSettings())
+  // Only for `replicating`: a hub with nothing in it skips its passes on purpose,
+  // and without that flag the card would report a deliberate skip as a stopped
+  // timer — on the one hub where the reader is most likely to be new here.
+  const stats = useResource<DashboardStats>(() => api.dashboard())
 
-  const { tone, headline, detail } = verdict(runs.data, settings.data, t)
+  const { tone, headline, detail } = verdict(runs.data, settings.data, t, {
+    replicating: stats.data?.replicating ?? null,
+  })
   const rows = runs.data ?? []
 
   return (

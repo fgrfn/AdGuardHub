@@ -445,6 +445,10 @@ class SyncResult(BaseModel):
 
 
 class DashboardStats(BaseModel):
+    #: Whether the hub holds anything to replicate. False means reconciliation is
+    #: skipping its passes deliberately, which the Reconciliation card has to be
+    #: able to say — otherwise it reads as a timer that stopped.
+    replicating: bool = True
     instances_total: int
     # Most recent successful push across all instances, and how many are current.
     last_sync_at: datetime | None = None
