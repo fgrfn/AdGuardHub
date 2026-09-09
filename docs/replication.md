@@ -21,6 +21,36 @@ central state, correcting what has drifted, and logging every correction.
 Instances are reached through an adapter interface (`push_rules` / `pull_rules` / …), so the
 sync core never talks to AdGuard's API directly.
 
+## A push reads before it writes
+
+"Full state" describes what a push *means*, not how many requests it makes. Every push first
+asks the node what it currently holds and then writes only what differs — rules, subscriptions
+and each configuration section alike. A node that already matches receives no write at all.
+
+That is not an optimisation, it is correctness about cost. **Every accepted write makes AdGuard
+reconfigure itself and rewrite `AdGuardHome.yaml`**, so sending a value the node already has
+costs exactly what sending a changed one costs and achieves nothing. Until v0.7.3 the
+subscription push compared (it always has) while the rule set and nine of the eleven managed
+sections were written unconditionally: one edit to one section reconfigured every node nine
+times over.
+
+Two consequences worth stating, because they are what the comparison is *for*:
+
+- **The push and the drift log now use the same comparison** (`adapters/compare.py`). They did
+  not before, and they disagreed in the one direction that matters: the drift log correctly
+  reported a section as unchanged while the push rewrote it anyway. That module is also where
+  the rule lives that a node answering `Europe/Berlin` to a requested `Local` has obeyed rather
+  than drifted.
+- **A subscription's name is not compared.** AdGuard replaces it with the `! Title:` from the
+  file it downloads, so the node's answer is the list's own title rather than what the hub sent.
+  Comparing them fired a write for every list on every push, for ever, over a difference the
+  drift log has never considered one. The hub owns the URL, the kind and whether the list is
+  enabled; the title belongs to the list.
+
+A section the node does not implement is skipped rather than written. Writing to an endpoint
+that answers 404 fails the whole settings payload, so one AdGuard build missing one area used to
+cost that node every other section too.
+
 ## Which areas
 
 Under *Instances → Settings*, each area can be replicated or left to the instance:

@@ -10,6 +10,7 @@ import httpx
 from ..semver import is_newer
 from . import session
 from .base import AdapterError, DnsAdapter, QueryLogEntry, RemoteFilterList, RemoteUpdate
+from .compare import section_matches
 from .sections import SECTION_NAMES, SPEC_BY_NAME, SectionSpec
 from .session import SessionKey, SessionStore
 
@@ -314,6 +315,15 @@ class AdGuardAdapter(DnsAdapter):
         return [str(line) for line in raw]
 
     async def push_rules(self, rules: list[str]) -> None:
+        """Make the node's rule set match ``rules``.
+
+        Read first. AdGuard reconfigures itself and rewrites AdGuardHome.yaml on
+        every accepted write, so sending a rule set the node already holds costs
+        exactly as much as sending a changed one and achieves nothing. The read
+        is one GET of the same endpoint the caller is about to read anyway.
+        """
+        if await self.pull_rules() == rules:
+            return
         await self._request("POST", "/control/filtering/set_rules", json={"rules": rules})
 
     async def pull_filter_lists(self) -> list[RemoteFilterList]:
@@ -342,6 +352,15 @@ class AdGuardAdapter(DnsAdapter):
         forever, never getting one list further. Nineteen applied and one named
         is the better answer, and it is the one the rest of the hub gives (spec
         §6: best effort, no rollback).
+
+        The name is deliberately **not** compared. AdGuard overwrites a list's
+        name with the `! Title:` from the file it downloads, so the node's answer
+        is the list's own title rather than what the hub sent — and a hub name
+        that differs then fired a `set_url` for every list on every push, for
+        ever. It is not drift either: ``diff_filter_lists`` has never compared
+        names, so the push was writing for a difference the hub does not
+        consider one. The title belongs to the list; the hub owns the URL, the
+        kind and whether it is enabled.
         """
         current = {(item.kind, item.url): item for item in await self.pull_filter_lists()}
         desired = {(item.kind, item.url): item for item in lists}
@@ -361,7 +380,7 @@ class AdGuardAdapter(DnsAdapter):
                     )
                     if not item.enabled:
                         await self._set_url(item, whitelist)
-                elif existing.enabled != item.enabled or existing.name != item.name:
+                elif existing.enabled != item.enabled:
                     await self._set_url(item, whitelist)
             except AdapterError as exc:
                 failures.append(f"{item.url} ({exc})")
@@ -443,11 +462,30 @@ class AdGuardAdapter(DnsAdapter):
         return self._select(spec, raw)
 
     async def push_section(self, name: str, data: dict[str, Any]) -> None:
+        """Make one configuration section match ``data``.
+
+        Read before writing. Every accepted write is a `reconfiguring server` on
+        the node and a rewrite of AdGuardHome.yaml, so a section the node already
+        holds costs the same as a changed one for no result — and a settings
+        change used to write *all* of them, meaning nine needless reconfigures
+        per node for one edit.
+
+        The comparison is the one reconciliation uses (adapters/compare.py), on
+        purpose: the push and the drift log now agree about what "different"
+        means. They did not before, which is how the push kept writing sections
+        the drift log correctly reported as unchanged.
+
+        ``clients`` and ``rewrites`` are left to their own handlers below, which
+        already read the node's list and act only on the differences.
+        """
         spec = SPEC_BY_NAME.get(name)
         if spec is None:
             raise AdapterError(f"Unknown configuration section {name!r}")
 
         if spec.strategy == "toggle":
+            wanted = {"enabled": bool(data.get("enabled"))}
+            if section_matches(name, wanted, await self.pull_section(name)):
+                return
             path = spec.enable_path if data.get("enabled") else spec.disable_path
             await self._request("POST", path)
             return
@@ -460,6 +498,16 @@ class AdGuardAdapter(DnsAdapter):
 
         payload = self._select(spec, data)
         if not payload:
+            return
+        current = await self.pull_section(name)
+        if section_matches(name, payload, current):
+            return
+        if current is None:
+            # The node does not implement this area. Writing anyway raises, and
+            # push_kind turns that into a failure of the whole settings payload —
+            # so one AdGuard build without one endpoint used to cost the node
+            # every other section too. Reconciliation reports it as a capability
+            # gap rather than drift; this now agrees with it.
             return
         if spec.merge_on_push:
             # This endpoint replaces the whole object, so send the target's current
