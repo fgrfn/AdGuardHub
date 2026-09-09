@@ -466,6 +466,12 @@ async def _drift(session: AsyncSession, redactor: Redactor) -> list[dict[str, An
             "summary": redactor.text(row.summary),
             "details": redactor.text(row.details),
             "corrected": row.corrected,
+            # The two numbers that separate a fault still happening from one that
+            # stopped hours ago — which, in a bundle attached to a report, is the
+            # difference between a live problem and a historical one.
+            "occurrences": row.occurrences,
+            "last_seen_at": _stamp(row.last_seen_at) if row.last_seen_at else "",
+            "took_ms": row.took_ms,
             "created_at": _stamp(row.created_at),
         }
         for row in rows

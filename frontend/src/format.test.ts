@@ -13,7 +13,13 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
-import { formatClock, formatCount, formatTime, setFormatLocale } from './format'
+import {
+  formatClock,
+  formatCount,
+  formatDuration,
+  formatTime,
+  setFormatLocale,
+} from './format'
 
 // A fixed instant, expressed so the assertions below cannot drift with the
 // runner's timezone: local midday on a day whose parts differ in every locale.
@@ -74,5 +80,32 @@ describe('formatClock', () => {
     const shown = formatClock(INSTANT)
     expect(shown).not.toContain('2026')
     expect(shown).toMatch(/\d{1,2}:\d{2}/)
+  })
+})
+
+describe('formatDuration', () => {
+  // The three spans this actually has to cover: a push to a healthy node on the
+  // LAN, a node fetching a list, and a large blocklist. One unit across all of
+  // them reads as either "62000 ms" or "0.0 min".
+  it.each([
+    [0, '0 ms'],
+    [84, '84 ms'],
+    [999, '999 ms'],
+    [1000, '1.0 s'],
+    // The reported fault: a push that died on the ten-second default.
+    [10_000, '10.0 s'],
+    [59_940, '59.9 s'],
+    [60_000, '1 min 0 s'],
+    // A threat feed on a small host, which is what the timeout was raised for.
+    [125_400, '2 min 5 s'],
+  ])('renders %i ms as %s', (ms, expected) => {
+    expect(formatDuration(ms)).toBe(expected)
+  })
+
+  it('never rounds a real measurement down to nothing', () => {
+    // "0 ms" against a push that took half a millisecond would read as "not
+    // measured", which is what a zero means everywhere else in the drift row.
+    expect(formatDuration(0.4)).toBe('0 ms')
+    expect(formatDuration(0.6)).toBe('1 ms')
   })
 })
