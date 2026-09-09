@@ -72,6 +72,8 @@ async def test_push_rules_replaces_the_whole_set() -> None:
     seen: dict[str, object] = {}
 
     async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/control/filtering/status":
+            return httpx.Response(200, json={"user_rules": ["||stale.example^"]})
         assert request.url.path == "/control/filtering/set_rules"
         seen["body"] = request.content
         return httpx.Response(200, json={})
@@ -79,6 +81,45 @@ async def test_push_rules_replaces_the_whole_set() -> None:
     await make_adapter(login_ok(handler)).push_rules(["||a.com^"])
     assert b'"rules"' in seen["body"]
     assert b"||a.com^" in seen["body"]
+
+
+async def test_a_rule_set_the_node_already_holds_is_not_written_again() -> None:
+    """Every accepted write is a reconfigure and a YAML rewrite on the node.
+
+    Sending a rule set the node already has costs exactly what sending a changed
+    one costs, and achieves nothing. The read that avoids it is one GET of the
+    endpoint the caller is about to read anyway.
+    """
+    seen: list[tuple[str, str]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path))
+        if request.url.path == "/control/filtering/status":
+            return httpx.Response(200, json={"user_rules": ["||a.com^", "||b.com^"]})
+        return httpx.Response(200, json={})
+
+    await make_adapter(login_ok(handler)).push_rules(["||a.com^", "||b.com^"])
+
+    assert ("POST", "/control/filtering/set_rules") not in seen
+
+
+async def test_rule_order_still_counts_as_a_difference() -> None:
+    """The hub decides the order, and AdGuard applies rules in the order given.
+
+    A set-based comparison here would call two different rule sets equal and
+    leave the node evaluating them the other way round.
+    """
+    seen: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/control/filtering/status":
+            return httpx.Response(200, json={"user_rules": ["||b.com^", "||a.com^"]})
+        seen.append(request.url.path)
+        return httpx.Response(200, json={})
+
+    await make_adapter(login_ok(handler)).push_rules(["||a.com^", "||b.com^"])
+
+    assert seen == ["/control/filtering/set_rules"]
 
 
 async def test_push_filter_lists_adds_updates_and_removes() -> None:
@@ -106,6 +147,57 @@ async def test_push_filter_lists_adds_updates_and_removes() -> None:
     assert "/control/filtering/remove_url" in paths
     removed = next(body for path, body in calls if path.endswith("remove_url"))
     assert removed == {"url": "https://example.com/allow.txt", "whitelist": True}
+
+
+async def test_a_list_the_node_renamed_is_left_alone() -> None:
+    """AdGuard owns the title; the hub owns the URL, the kind and enabled.
+
+    AdGuard overwrites a subscription's name with the `! Title:` from the file it
+    downloads, so the node's answer is the list's own title rather than what the
+    hub sent. Comparing the two fired a `set_url` for every list on every push,
+    for ever — and it was not drift either: diff_filter_lists has never compared
+    names, so the push was writing for a difference the hub does not consider
+    one.
+    """
+    calls: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/control/filtering/status":
+            return httpx.Response(200, json=FILTERING_STATUS)
+        calls.append(request.url.path)
+        return httpx.Response(200, json={})
+
+    desired = [
+        # Same URL, same kind, same enabled state — only the name differs,
+        # because the node took its own from the downloaded file.
+        RemoteFilterList(
+            "What the hub calls it", "https://example.com/block.txt", True, "blocklist"
+        ),
+        RemoteFilterList("Allow", "https://example.com/allow.txt", False, "allowlist"),
+    ]
+    await make_adapter(login_ok(handler)).push_filter_lists(desired)
+
+    assert calls == []
+
+
+async def test_a_list_the_node_has_disabled_is_still_corrected() -> None:
+    """Dropping the name from the comparison must not drop the enabled state."""
+    calls: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/control/filtering/status":
+            return httpx.Response(200, json=FILTERING_STATUS)
+        calls.append(request.url.path)
+        return httpx.Response(200, json={})
+
+    desired = [
+        RemoteFilterList("Block", "https://example.com/block.txt", True, "blocklist"),
+        # The node has this one switched off; the hub wants it on.
+        RemoteFilterList("Allow", "https://example.com/allow.txt", True, "allowlist"),
+    ]
+    await make_adapter(login_ok(handler)).push_filter_lists(desired)
+
+    assert calls == ["/control/filtering/set_url"]
 
 
 async def test_query_log_parsing_marks_blocked_entries() -> None:
@@ -279,6 +371,9 @@ async def test_toggle_sections_use_the_enable_and_disable_endpoints() -> None:
     seen: list[str] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            # The opposite of what is about to be pushed, so the write is needed.
+            return httpx.Response(200, json={"enabled": "safebrowsing" not in request.url.path})
         seen.append(request.url.path)
         return httpx.Response(200, json={})
 
@@ -286,6 +381,21 @@ async def test_toggle_sections_use_the_enable_and_disable_endpoints() -> None:
     await adapter.push_section("safebrowsing", {"enabled": True})
     await adapter.push_section("parental", {"enabled": False})
     assert seen == ["/control/safebrowsing/enable", "/control/parental/disable"]
+
+
+async def test_a_toggle_already_in_the_wanted_state_is_not_written() -> None:
+    """Switching something on that is already on is still a reconfigure."""
+    seen: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json={"enabled": True})
+        seen.append(request.url.path)
+        return httpx.Response(200, json={})
+
+    await make_adapter(login_ok(handler)).push_section("safebrowsing", {"enabled": True})
+
+    assert seen == []
 
 
 async def test_clients_are_added_updated_and_removed() -> None:
@@ -463,7 +573,8 @@ async def test_query_log_and_stats_config_write_to_the_update_path() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         seen.append((request.method, request.url.path))
         if request.method == "GET":
-            return httpx.Response(200, json={"enabled": True, "ignored": []})
+            # Switched off on the node, so both pushes have work to do.
+            return httpx.Response(200, json={"enabled": False, "ignored": []})
         return httpx.Response(200, json={})
 
     adapter = make_adapter(login_ok(handler))
@@ -475,6 +586,48 @@ async def test_query_log_and_stats_config_write_to_the_update_path() -> None:
         ("PUT", "/control/querylog/config/update"),
         ("PUT", "/control/stats/config/update"),
     ]
+
+
+async def test_a_section_the_node_already_matches_is_not_written() -> None:
+    """The change that started this: a settings edit rewrote every section.
+
+    Nine of the eleven managed areas were written unconditionally on every push,
+    each one a `reconfiguring server` and a rewrite of AdGuardHome.yaml — while
+    the drift log, using this very comparison, correctly reported that nothing
+    had changed. The push and the drift log now agree.
+    """
+    seen: list[tuple[str, str]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path))
+        if request.method == "GET":
+            return httpx.Response(200, json={"enabled": True, "ignored": []})
+        return httpx.Response(200, json={})
+
+    await make_adapter(login_ok(handler)).push_section("querylog_config", {"enabled": True})
+
+    assert [entry for entry in seen if entry[0] != "GET"] == []
+
+
+async def test_a_section_the_node_does_not_implement_is_skipped_not_failed() -> None:
+    """One missing endpoint used to cost the node every other section.
+
+    push_kind raises on the first section that fails, so an AdGuard build without
+    one area failed the whole settings payload. Reconciliation has always
+    reported that as a capability gap rather than drift; this now agrees.
+    """
+    seen: list[tuple[str, str]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path))
+        if request.method == "GET":
+            return httpx.Response(404, json={})
+        return httpx.Response(200, json={})
+
+    # Must not raise.
+    await make_adapter(login_ok(handler)).push_section("querylog_config", {"enabled": True})
+
+    assert [entry for entry in seen if entry[0] != "GET"] == []
 
 
 # --------------------------------------------------------------------------

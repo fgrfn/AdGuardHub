@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..adapters import AdapterError, RemoteFilterList, build_adapter
+from ..adapters.compare import section_differences
 from ..db import session_scope
 from ..models import DriftEvent, Instance, InstanceStatus, PayloadKind, ReconcileRun, utcnow
 from ..runtime import get_crypto
@@ -155,67 +156,6 @@ def diff_filter_lists(
     )
 
 
-def _normalise(value: Any) -> Any:
-    if isinstance(value, list):
-        return [_normalise(item) for item in value]
-    if isinstance(value, dict):
-        return {key: _normalise(item) for key, item in sorted(value.items())}
-    return value
-
-
-# Settings each node is entitled to answer for itself, by the path they sit at.
-#
-# "Local" is not a time zone; it is an instruction to use whichever zone the node
-# is in. A node reading back "Europe/Berlin" has obeyed that instruction rather
-# than drifted from it — but comparing the request against the answer made every
-# reconciliation run report a difference, correct it by pushing "Local" again, and
-# find the same difference on the next run. Forever, on any node whose clock knows
-# where it is, filling the drift log and firing a notification each time.
-#
-# Only the placeholder is forgiven. A hub that says Europe/Berlin and a node that
-# says something else is still drift, and is still corrected.
-SELF_RESOLVED: dict[tuple[str, ...], frozenset[str]] = {
-    ("blocked_services", "schedule", "time_zone"): frozenset({"Local", ""}),
-}
-
-
-def _equivalent(expected: Any, actual: Any, path: tuple[str, ...]) -> bool:
-    """Whether the node's answer satisfies what the hub asked for, at this path."""
-    allowed = SELF_RESOLVED.get(path)
-    if allowed is not None and expected in allowed:
-        return True
-    if isinstance(expected, dict) and isinstance(actual, dict):
-        if expected.keys() != actual.keys():
-            return False
-        return all(_equivalent(expected[key], actual[key], path + (key,)) for key in expected)
-    if isinstance(expected, list) and isinstance(actual, list):
-        if len(expected) != len(actual):
-            return False
-        return all(
-            _equivalent(item, other, path)
-            for item, other in zip(expected, actual, strict=True)
-        )
-    return _normalise(expected) == _normalise(actual)
-
-
-def diff_section(
-    name: str, expected: dict[str, Any], actual: dict[str, Any] | None
-) -> dict[str, Any] | None:
-    """Per-key differences for one section, or ``None`` when it matches.
-
-    ``actual`` is ``None`` when the instance does not implement the section; that is
-    not drift, just a capability difference, so it is reported without a correction.
-    """
-    if actual is None:
-        return {"unsupported": True}
-    changed = {
-        key: {"expected": _normalise(value), "actual": _normalise(actual.get(key))}
-        for key, value in expected.items()
-        if not _equivalent(value, actual.get(key), (name, key))
-    }
-    return changed or None
-
-
 def diff_settings(
     expected: dict[str, dict[str, Any]], actual: dict[str, dict[str, Any] | None]
 ) -> Difference | None:
@@ -223,7 +163,7 @@ def diff_settings(
     details: dict[str, Any] = {}
     unsupported: list[str] = []
     for name, wanted in expected.items():
-        found = diff_section(name, wanted, actual.get(name))
+        found = section_differences(name, wanted, actual.get(name))
         if found is None:
             continue
         if found.get("unsupported"):
