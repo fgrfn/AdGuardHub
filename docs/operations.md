@@ -14,7 +14,8 @@ Three different things are called a log here, and they are not the same:
   instance. It lives in the UI and is what you use day to day.
 - **The application log** is the hub talking about itself: what it did on start, a push that
   failed, a wrong password. It goes to stderr, so `docker logs adguardhub` (or
-  `docker compose logs -f`) reads it back.
+  `docker compose logs -f`) reads it back — **and to `<data dir>/adguardhub.log`**, which is
+  the copy that survives a restart. See [Keeping the log](#keeping-the-log) below.
 - **The drift archive** is every reconciliation finding, written to a file as it happens. See
   [The drift archive](#the-drift-archive) below.
 
@@ -52,14 +53,50 @@ and the attempt that trips the rate limit says so once. The attempted username i
 not logged: with a single admin account it tells you nothing you don't know, and logging it
 would write a password to disk the first time someone types one into the wrong box.
 
-Set `ADGUARDHUB_LOG_FILE=/data/adguardhub.log` to also keep a rotating file (5 MB, three
-backups by default). Most deployments do not need it — the container runtime already keeps a
-copy — but it survives `docker rm` and is easier to hand to someone else. If the path cannot
+### Keeping the log
+
+The hub writes a rotating file to `<data dir>/adguardhub.log` (5 MB, three backups), alongside
+stderr. **On by default**, and the reason is worth stating because it was learned the hard way.
+
+stderr is captured by whatever started the hub, and what that keeps is not the hub's decision.
+`docker logs` holds the current container's output — an upgrade replaces the container and the
+history goes with it. A native install lands in the systemd journal, which on many systems is
+volatile. The 500 lines under *Settings → Log* live in memory and are cleared on restart.
+
+Every one of those disappears at a restart, and restarting is the first thing anybody does when
+something looks wrong. So the log was routinely destroyed by the act of investigating it: a
+reconciler stopped one Saturday afternoon, the operator restarted the hub, and the two hours
+that would have said why were gone before anyone could read them. A log nobody switched on is
+empty exactly when they discover they needed it — the same argument the drift archive is on by
+default for.
+
+`ADGUARDHUB_LOG_FILE` puts it somewhere else; `ADGUARDHUB_LOG_FILE_ENABLED=false` switches it
+off, for a deployment that keeps its own copy and would rather not keep two. If the path cannot
 be written, the hub says so and carries on with stderr rather than refusing to start.
 
-Docker's default json-file driver keeps that copy **without any size limit**, which on a
+Docker's default json-file driver keeps its copy **without any size limit**, which on a
 long-running hub is a disk that fills quietly. The `logging:` block in the
 [Compose example](install.md#docker-compose) caps it at three files of 10 MB; keep it.
+
+### When a background timer stops
+
+The hub runs three timers: the retry queue, reconciliation, and the query log poll. Each one
+already survives a pass that goes wrong — a node that will not answer, a payload it rejects.
+What none of them used to survive was the *loop itself* ending, because a cancellation is not
+an ordinary error and slipped past the handler that catches those.
+
+A worker that ended that way ended for good, and nothing said so. The hub carried on serving
+requests exactly as though all three were running; the only thing in the system that knew was
+the *Reconciliation* card saying the last pass was hours old.
+
+Each timer is now supervised. One that ends for any reason other than shutdown is logged at
+`ERROR` — naming which one, and whether it raised, was cancelled, or simply returned — and
+started again. There is no attempt limit: a worker that keeps dying is broken and should keep
+saying so, and a limit would restore the silence this exists to remove. The delay between
+restarts grows to a minute, so a worker failing in a tight loop costs one log line a minute
+rather than a busy CPU.
+
+Which means: if *Reconciliation* ever reads **may have stopped** again, the log now says why.
 
 ## The drift archive
 

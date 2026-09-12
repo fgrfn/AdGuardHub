@@ -256,8 +256,13 @@ async def test_the_hub_describes_itself_without_naming_its_paths(
     # An unset key means credentials are re-encrypted on every boot, which
     # explains "my nodes lost their passwords again" before anyone asks.
     assert bundle["hub"]["secret_key_set"] is True
+    # The path can name a home directory, so it is never in the bundle — only
+    # whether a log is being kept, which is the diagnostic content of the answer.
     assert "log_file" not in bundle["hub"]
-    assert bundle["hub"]["log_file_configured"] is False
+    # True by default now: this flag is read to decide whether there is evidence
+    # worth asking for, and reporting "no log kept" on a hub that keeps one sent
+    # one investigation looking for something it already had.
+    assert bundle["hub"]["log_file_configured"] is True
 
 
 @pytest.fixture(autouse=True)
