@@ -28,10 +28,32 @@ export function setFormatLocale(language: string): void {
   locale = language === 'de' ? 'de-DE' : undefined
 }
 
-/** Local timestamps; the backend speaks UTC throughout. */
+/**
+ * A timestamp from the hub's API, as an instant.
+ *
+ * The hub speaks UTC throughout and now says so — but `new Date(s)` on an ISO
+ * string *without* an offset does not guess, it is defined to mean **local
+ * time**. So while the backend dropped the offset (SQLite has no timestamp type,
+ * and SQLAlchemy's `timezone=True` is a no-op there), every time in this
+ * interface was shown two hours early in Berlin — and the *Reconciliation* card,
+ * which measures the gap to the last pass, reported a perfectly healthy
+ * reconciler as stopped, permanently.
+ *
+ * The backend is fixed at the source. This stays as the reading half of the same
+ * rule, because it is a true statement about this API rather than a patch: a
+ * timestamp from it with no offset is UTC. It is a no-op on a value that already
+ * carries one, so the two cannot disagree — and one field missed in a schema
+ * cannot quietly reintroduce two hours of error.
+ */
+export function parseApiDate(value: string): Date {
+  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(value)
+  return new Date(hasZone ? value : `${value}Z`)
+}
+
+/** Shown in the reader's own zone; the backend speaks UTC throughout. */
 export function formatTime(value: string | null | undefined): string {
   if (!value) return '—'
-  const date = new Date(value)
+  const date = parseApiDate(value)
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleString(locale)
 }
@@ -42,7 +64,7 @@ export function formatTime(value: string | null | undefined): string {
  */
 export function formatDate(value: string | null | undefined): string {
   if (!value) return '—'
-  const date = new Date(value)
+  const date = parseApiDate(value)
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleDateString(locale, { year: 'numeric', month: 'long', day: 'numeric' })
 }
@@ -78,7 +100,7 @@ export function formatDuration(ms: number): string {
  */
 export function formatClock(value: string | null | undefined): string {
   if (!value) return '—'
-  const date = new Date(value)
+  const date = parseApiDate(value)
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleTimeString(locale)
 }

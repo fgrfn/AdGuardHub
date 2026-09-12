@@ -75,6 +75,21 @@ describe('verdict', () => {
     expect(result.headline).toBe('Reconciliation may have stopped')
   })
 
+  it('does not call a reconciler that just ran stopped, whatever zone the reader is in', () => {
+    // The reported fault, in the terms it was reported in. The hub sent
+    // `last_at` without an offset, JavaScript defines such a string as *local*
+    // time, and a browser in UTC+2 therefore measured the gap as two hours —
+    // more than three 300-second intervals. So this card said "may have stopped"
+    // about a reconciler that had run seconds earlier, on every load, for days.
+    const justRan = new Date(NOW - 5_000)
+    const withoutZone = justRan.toISOString().replace('Z', '')
+
+    const result = verdict([run({ last_at: withoutZone })], settings(), t, { now: NOW })
+
+    expect(result.headline).toBe('Nothing to correct')
+    expect(result.tone).toBe('ok')
+  })
+
   it('does not cry wolf over a single late pass', () => {
     // One missed pass is a slow node, a restart, or a pass that ran long. At 1×
     // this panel would go red routinely, and a panel that goes red routinely is

@@ -2,12 +2,38 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, Literal
+from datetime import UTC, datetime
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator
 
 from .models import ListKind, RuleKind, RuleOrigin
+
+
+def _stamp_utc(value: datetime) -> datetime:
+    """Say that a stored timestamp is UTC, because the database cannot.
+
+    Everything is written with ``utcnow()``, which is timezone-aware — but SQLite
+    has no timestamp type and SQLAlchemy's ``DateTime(timezone=True)`` is a no-op
+    there: the offset is dropped on write and the value comes back naive. Pydantic
+    then serialises `2026-09-12T18:23:36`, and an ISO string with no offset is not
+    ambiguous in JavaScript — it is defined as **local time**. A browser in UTC+2
+    therefore reads every timestamp this hub sends as two hours earlier than it is.
+
+    That is not a cosmetic error. The *Reconciliation* card decides whether the
+    safety net has stopped by comparing the last pass against the clock, so a
+    constant two-hour offset made a healthy reconciler read "may have stopped" —
+    permanently, at every interval below eight hours. It cost an evening of
+    looking for a fault in the worker, which was running the whole time.
+
+    So the offset is put back on the way out, where it can be stated once and
+    where every reader of this API gets it.
+    """
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
+#: A timestamp that leaves the hub saying which zone it is in.
+UtcDatetime = Annotated[datetime, AfterValidator(_stamp_utc)]
 
 
 class ORMModel(BaseModel):
@@ -137,13 +163,13 @@ class InstanceOut(ORMModel):
     update_url: str
     update_error: str
     last_error: str
-    last_seen_at: datetime | None
-    last_synced_at: datetime | None
+    last_seen_at: UtcDatetime | None
+    last_synced_at: UtcDatetime | None
     # Set while the node is answering but holding something other than what
     # the hub wants; NULL when it matches. `status` cannot say this — such a
     # node is genuinely online.
-    out_of_sync_since: datetime | None
-    created_at: datetime
+    out_of_sync_since: UtcDatetime | None
+    created_at: UtcDatetime
 
 
 class ImportRequest(BaseModel):
@@ -184,8 +210,8 @@ class RuleOut(ORMModel):
     origin: RuleOrigin
     enabled: bool
     comment: str
-    created_at: datetime
-    updated_at: datetime
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
 
 
 class DomainRuleRequest(BaseModel):
@@ -237,7 +263,7 @@ class FilterListOut(ORMModel):
     url: str
     kind: ListKind
     enabled: bool
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 class ListSizeInstanceOut(BaseModel):
@@ -292,7 +318,7 @@ class ConfigSectionOut(BaseModel):
     data: dict[str, Any]
     # Non-empty when the section is managed but cannot safely be pushed.
     skipped_reason: str
-    updated_at: datetime
+    updated_at: UtcDatetime
 
 
 class ConfigSectionUpdate(BaseModel):
@@ -306,7 +332,7 @@ class VersionOut(BaseModel):
     author: str
     kind: str
     summary: str
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 class VersionDetail(BaseModel):
@@ -314,7 +340,7 @@ class VersionDetail(BaseModel):
     label: str
     author: str
     kind: str
-    created_at: datetime
+    created_at: UtcDatetime
     snapshot: dict[str, Any]
 
 
@@ -406,7 +432,7 @@ class PushJobOut(BaseModel):
     attempts: int
     last_error: str
     reason: str
-    updated_at: datetime
+    updated_at: UtcDatetime
 
 
 class DriftEventOut(ORMModel):
@@ -418,17 +444,17 @@ class DriftEventOut(ORMModel):
     details: str
     corrected: bool
     occurrences: int
-    last_seen_at: datetime | None
+    last_seen_at: UtcDatetime | None
     took_ms: int
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 class ReconcileRunOut(ORMModel):
     """One streak of reconciliation passes that ended the same way."""
 
     id: int
-    started_at: datetime
-    last_at: datetime
+    started_at: UtcDatetime
+    last_at: UtcDatetime
     passes: int
     instances: int
     unreachable: int
@@ -451,7 +477,7 @@ class DashboardStats(BaseModel):
     replicating: bool = True
     instances_total: int
     # Most recent successful push across all instances, and how many are current.
-    last_sync_at: datetime | None = None
+    last_sync_at: UtcDatetime | None = None
     instances_synced: int = 0
     managed_sections: int = 0
     versions_total: int = 0

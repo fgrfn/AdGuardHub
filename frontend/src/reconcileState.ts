@@ -14,6 +14,7 @@
  */
 
 import type { HubSettings, ReconcileRun } from './api/types'
+import { parseApiDate } from './format'
 
 export type Tone = 'ok' | 'warn' | 'bad'
 
@@ -89,7 +90,13 @@ export function verdict(
     return { tone: 'warn', headline: t('No pass recorded yet'), detail: '' }
   }
 
-  const since = now - new Date(latest.last_at).getTime()
+  // parseApiDate, not `new Date`: a timestamp without an offset is *defined* as
+  // local time in JavaScript, so on a browser east of Greenwich this measurement
+  // was inflated by the whole UTC offset. At any interval below eight hours that
+  // alone exceeded the staleness threshold, and this card called a reconciler
+  // that had just run "may have stopped" — the fault it exists to report, raised
+  // against itself, permanently.
+  const since = now - parseApiDate(latest.last_at).getTime()
   const overdue = settings.reconcile_interval * 1000 * STALE_AFTER_INTERVALS
   if (since > overdue) {
     return {
