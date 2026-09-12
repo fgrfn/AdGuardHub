@@ -98,12 +98,27 @@ rather than a busy CPU.
 
 Which means: if *Reconciliation* ever reads **may have stopped** again, the log now says why.
 
+There is one ending supervision cannot see, and it is the quietest: a pass that **hangs**. A
+coroutine waiting for something that never comes never ends, so there is nothing to catch and
+nothing to restart — it would sit there for weeks while every page in the hub rendered perfectly.
+
+So a pass has a deadline: four fifths of the reconciliation interval, and never less than two
+minutes. Most of the interval rather than all of it, because two passes overlapping is the worse
+failure — both want the same per-node push lock, so the second would block behind the first for as
+long as it ran. Never less than two minutes, because the interval can be set to 30 seconds and a
+node fetching a large blocklist legitimately takes longer than that.
+
+A pass that runs out of time is abandoned, said so plainly — *exceeded … and was abandoned* rather
+than the word *failed*, because a pass that never came back needs a different answer from one that
+went wrong — and the next runs on schedule. Nothing inside a pass is known to hang today; this is
+the backstop for the one that is not known.
+
 ### Being told, rather than noticing
 
-Supervision covers a worker that *ends*. It cannot cover one that **hangs** — a coroutine waiting
-forever never ends, so there is nothing to catch — and it has nothing to say about a reconciler
-switched off months ago and forgotten. Both of those stay silent, and until now the only thing in
-the hub that knew was the *Reconciliation* card: a panel somebody has to be looking at.
+Between them, supervision and that deadline mean a stopped timer now ends and says so. Neither
+says anything about a reconciler **switched off months ago and forgotten**, and neither puts the
+news anywhere but the log. Until now the only thing in the hub that reported it at all was the
+*Reconciliation* card: a panel somebody has to be looking at.
 
 So the hub watches its own safety net, from outside it, because the reconciler cannot be the thing
 that reports its own failure. When no pass has completed in three intervals it says so **once** —
