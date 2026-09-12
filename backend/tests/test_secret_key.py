@@ -152,3 +152,40 @@ def test_an_unwritable_directory_still_starts_the_hub(data_dir, monkeypatch, cap
 def test_an_existing_key_file_is_preferred_over_generating_one(data_dir) -> None:
     (data_dir / "secret.key").write_text("a-key-written-by-an-earlier-version\n", encoding="utf-8")
     assert resolve_secret_key() == "a-key-written-by-an-earlier-version"
+
+
+# --------------------------------------------------------------------------
+# What the diagnostics bundle says about it
+# --------------------------------------------------------------------------
+
+
+def _source(monkeypatch, *, ephemeral: bool = False) -> str:
+    from app import runtime
+    from app.services import diagnostics
+
+    monkeypatch.setattr(runtime, "using_ephemeral_secret", lambda: ephemeral)
+    monkeypatch.setattr(diagnostics, "using_ephemeral_secret", lambda: ephemeral)
+    return diagnostics._secret_key_source()
+
+
+def test_a_configured_key_is_reported_as_coming_from_the_environment(monkeypatch) -> None:
+    _configure(monkeypatch, "a-perfectly-good-long-secret-key")
+    assert _source(monkeypatch) == "environment"
+
+
+def test_an_unset_key_is_reported_as_generated_not_as_missing(monkeypatch, data_dir) -> None:
+    """The correction this field exists for.
+
+    `secret_key_set: false` was read — by the person reading the bundle — as "no
+    key, so credentials are re-encrypted on every boot". That has not been true
+    since the hub started keeping a generated one, and acting on it meant fixing
+    something that was working.
+    """
+    assert _source(monkeypatch) == "generated"
+
+
+def test_only_an_unwritable_data_directory_is_reported_as_ephemeral(
+    monkeypatch, data_dir
+) -> None:
+    """The one state of the three that actually loses credentials on restart."""
+    assert _source(monkeypatch, ephemeral=True) == "ephemeral"
