@@ -17,6 +17,8 @@ const EVENT_LABELS: Record<string, string> = {
   'instance.unreachable': 'An instance went unreachable',
   'instance.recovered': 'An instance became reachable again',
   'push.failed': 'A push failed and was queued',
+  'reconcile.stalled': 'Reconciliation stopped running',
+  'reconcile.resumed': 'Reconciliation started running again',
 }
 
 const URL_HINTS: Record<NotifierType, string> = {
