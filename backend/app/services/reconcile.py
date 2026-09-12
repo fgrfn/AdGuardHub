@@ -48,6 +48,25 @@ logger = logging.getLogger(__name__)
 
 MAX_DETAIL_ITEMS = 25
 
+#: A pass may take this fraction of the interval before it is abandoned.
+#:
+#: Not the whole interval: two passes overlapping is a worse failure than one
+#: cut short, because both hold the same per-node push lock and the second would
+#: block behind the first for as long as it ran. Not a fixed number of seconds
+#: either — a pass over a node fetching twenty blocklists legitimately takes a
+#: minute, and a deadline tighter than the work is a loop that never completes.
+PASS_DEADLINE_FRACTION = 0.8
+
+#: Whatever the interval, a pass gets at least this long. The interval is
+#: settable down to 30 seconds, and 24 of those is shorter than a single
+#: ``add_url`` on a large blocklist.
+MIN_PASS_DEADLINE = 120.0
+
+
+def pass_deadline(interval: int) -> float:
+    """How long one reconciliation pass may take, for a given interval."""
+    return max(MIN_PASS_DEADLINE, interval * PASS_DEADLINE_FRACTION)
+
 NOTHING_TO_REPLICATE = (
     "The hub holds no rule, no subscription and no populated managed section, so there is "
     "nothing to reconcile against. Reconciliation starts with the first of them."
@@ -665,7 +684,29 @@ async def reconcile_worker(stop: asyncio.Event) -> None:  # pragma: no cover - b
         if not hubsettings.current().reconcile_enabled:
             continue
         try:
-            async with session_scope() as session:
-                await reconcile_all(session)
+            # A deadline, because supervision cannot see a pass that hangs. A
+            # worker that *ends* is logged and restarted; a coroutine waiting for
+            # something that never comes simply never ends, so there is nothing
+            # to notice and nothing to restart. It would sit there for weeks
+            # while every page in the hub rendered perfectly.
+            #
+            # Nothing inside a pass is known to hang today — the adapter's
+            # timeout covers connect, read, write and pool, and both push locks
+            # are context-managed, so they release even on cancellation. This is
+            # the backstop for the one that is not known, and the shape of fault
+            # it catches is the shape that is hardest to find without it.
+            async with asyncio.timeout(pass_deadline(settings.reconcile_interval)):
+                async with session_scope() as session:
+                    await reconcile_all(session)
+        except TimeoutError:
+            # Not `Exception` above: asyncio.timeout raises TimeoutError, and
+            # letting the generic handler log it as "failed" would hide the one
+            # thing worth knowing — that it did not fail, it never came back.
+            logger.error(
+                "Reconciliation pass exceeded %s and was abandoned; the next one runs on "
+                "schedule. A pass that cannot finish within its own deadline usually means a "
+                "node accepting a connection and never answering.",
+                human_ms(int(pass_deadline(settings.reconcile_interval) * 1000)),
+            )
         except Exception:
             logger.exception("Reconciliation pass failed")

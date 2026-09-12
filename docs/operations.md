@@ -98,6 +98,21 @@ rather than a busy CPU.
 
 Which means: if *Reconciliation* ever reads **may have stopped** again, the log now says why.
 
+There is one ending supervision cannot see, and it is the quietest: a pass that **hangs**. A
+coroutine waiting for something that never comes never ends, so there is nothing to catch and
+nothing to restart — it would sit there for weeks while every page in the hub rendered perfectly.
+
+So a pass has a deadline: four fifths of the reconciliation interval, and never less than two
+minutes. Most of the interval rather than all of it, because two passes overlapping is the worse
+failure — both want the same per-node push lock, so the second would block behind the first for as
+long as it ran. Never less than two minutes, because the interval can be set to 30 seconds and a
+node fetching a large blocklist legitimately takes longer than that.
+
+A pass that runs out of time is abandoned, said so plainly — *exceeded … and was abandoned* rather
+than the word *failed*, because a pass that never came back needs a different answer from one that
+went wrong — and the next runs on schedule. Nothing inside a pass is known to hang today; this is
+the backstop for the one that is not known.
+
 ## The drift archive
 
 The drift log on the dashboard is built to stay readable: 500 rows at most, one entry per
