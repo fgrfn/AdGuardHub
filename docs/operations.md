@@ -98,6 +98,43 @@ rather than a busy CPU.
 
 Which means: if *Reconciliation* ever reads **may have stopped** again, the log now says why.
 
+### Being told, rather than noticing
+
+Supervision covers a worker that *ends*. It cannot cover one that **hangs** — a coroutine waiting
+forever never ends, so there is nothing to catch — and it has nothing to say about a reconciler
+switched off months ago and forgotten. Both of those stay silent, and until now the only thing in
+the hub that knew was the *Reconciliation* card: a panel somebody has to be looking at.
+
+So the hub watches its own safety net, from outside it, because the reconciler cannot be the thing
+that reports its own failure. When no pass has completed in three intervals it says so **once** —
+a stall is true on every check by definition, and a message a minute is how a notifier stops being
+read — and says so again once when it resumes. Both are notifier events like any other
+(*Settings → Notifications*), so they reach Home Assistant, Discord or Gotify with everything else.
+
+`GET /api/health` carries the same answer, unauthenticated, for an external monitor:
+
+```json
+{
+  "status": "ok",
+  "version": "0.7.6",
+  "reconcile": {
+    "enabled": true, "replicating": true,
+    "last_pass_age_s": 42, "overdue_after_s": 2700, "stalled": false
+  }
+}
+```
+
+That path matters precisely when the hub is the part that is unwell: a webhook needs the hub
+healthy enough to send one, and a monitor polling this does not. `status` stays `ok` regardless —
+it is also what the container's own start-up check waits for, and a hub with nothing configured
+yet is not unhealthy.
+
+Three states are **not** a stall, and each is one a real hub spends time in: reconciliation
+switched off (a decision), a hub with nothing to replicate (it deliberately does not reconcile at
+all), and a hub that has not recorded a first pass yet (a restart has not missed anything). A
+watchdog that cried wolf on any of those would be muted within a week, which would cost more than
+it saved.
+
 ## The drift archive
 
 The drift log on the dashboard is built to stay readable: 500 rows at most, one entry per

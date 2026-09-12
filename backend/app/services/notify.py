@@ -21,12 +21,19 @@ EVENT_RECONCILE_FIX = "reconcile.fixed"
 EVENT_INSTANCE_UNREACHABLE = "instance.unreachable"
 EVENT_INSTANCE_RECOVERED = "instance.recovered"
 EVENT_PUSH_FAILED = "push.failed"
+# The safety net itself, which nothing used to watch. Supervision covers a worker
+# that ends; these cover one that hangs, and one switched off months ago and
+# forgotten — neither of which anything in the hub said a word about.
+EVENT_RECONCILE_STALLED = "reconcile.stalled"
+EVENT_RECONCILE_RESUMED = "reconcile.resumed"
 
 KNOWN_EVENTS = (
     EVENT_RECONCILE_FIX,
     EVENT_INSTANCE_UNREACHABLE,
     EVENT_INSTANCE_RECOVERED,
     EVENT_PUSH_FAILED,
+    EVENT_RECONCILE_STALLED,
+    EVENT_RECONCILE_RESUMED,
 )
 NOTIFIER_TYPES = ("homeassistant", "discord", "gotify")
 

@@ -292,6 +292,8 @@ export const de: Record<string, string> = {
   "{name} responded — AdGuard Home {version}.": "{name} hat geantwortet — AdGuard Home {version}.",
 
   // Settings, instance settings, the DNS page
+  "Reconciliation stopped running": "Der Abgleich läuft nicht mehr",
+  "Reconciliation started running again": "Der Abgleich läuft wieder",
   "A push failed and was queued": "Eine Übertragung schlug fehl und wurde eingereiht",
   "Add notifier": "Ziel hinzufügen",
   "Added notifier {name}.": "Ziel {name} hinzugefügt.",

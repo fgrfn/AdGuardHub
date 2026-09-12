@@ -16,6 +16,8 @@
   "allowlist",
   "An instance became reachable again",
   "An instance went unreachable",
+  "Reconciliation stopped running",
+  "Reconciliation started running again",
   "Anonymise client IPs",
   "Answers with a shorter TTL are held this long anyway.",
   "applied",
