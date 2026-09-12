@@ -63,6 +63,7 @@ from ..models import (
     RuleOrigin,
     User,
 )
+from ..runtime import using_ephemeral_secret
 from ..version import VERSION
 from . import querylog
 from .logbuffer import get_buffer
@@ -270,6 +271,35 @@ async def build(session: AsyncSession) -> dict[str, Any]:
     }
 
 
+def _secret_key_source() -> str:
+    """Which of the three key states the hub is actually in.
+
+    The bundle used to report only ``secret_key_set``, meaning "set in the
+    environment", with a comment saying an unset key meant a per-boot random one
+    and explained nodes losing their passwords on restart. That stopped being
+    true when the hub started generating and *keeping* a key: unset is now the
+    ordinary, supported, working case.
+
+    The comment outlived the behaviour, and a stale comment on a field named like
+    a yes/no question is worse than no field — it was read here as "this hub has
+    no key", and an operator was twice told to fix something that was not broken.
+
+    Three states, because only one of them is a fault:
+
+    * ``environment`` — configured. The key does not live beside the data it
+      protects, which is why this stays the recommended setup.
+    * ``generated`` — created once and kept in the data directory. Fine; it just
+      has to be backed up *with* the database, since neither half is any use
+      without the other.
+    * ``ephemeral`` — the data directory could not be written, so the key lasts
+      until the process restarts. This is the one that loses stored credentials
+      and sessions, and the only one worth acting on.
+    """
+    if get_settings().secret_key.strip():
+        return "environment"
+    return "ephemeral" if using_ephemeral_secret() else "generated"
+
+
 def _hub() -> dict[str, Any]:
     settings = get_settings()
     return {
@@ -284,10 +314,10 @@ def _hub() -> dict[str, Any]:
         # alone would report the healthy case as "no log kept" — which is the
         # answer that sent one investigation looking for evidence that existed.
         "log_file_configured": bool(settings.log_path),
-        # An unset key means credentials are encrypted with a per-boot random
-        # one, which explains "my nodes lost their passwords on restart" without
-        # anybody having to ask.
+        # Whether the key came from the environment. This is *not* the question
+        # worth asking on its own — see `secret_key_source`, which is.
         "secret_key_set": bool(settings.secret_key),
+        "secret_key_source": _secret_key_source(),
         "data_dir_is_default": os.path.abspath(settings.data_dir)
         == os.path.abspath("./data"),
         "serves_frontend": os.path.isdir(settings.static_dir),
