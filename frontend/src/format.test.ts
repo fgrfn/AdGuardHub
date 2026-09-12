@@ -18,6 +18,7 @@ import {
   formatCount,
   formatDuration,
   formatTime,
+  parseApiDate,
   setFormatLocale,
 } from './format'
 
@@ -107,5 +108,32 @@ describe('formatDuration', () => {
     // measured", which is what a zero means everywhere else in the drift row.
     expect(formatDuration(0.4)).toBe('0 ms')
     expect(formatDuration(0.6)).toBe('1 ms')
+  })
+})
+
+describe('parseApiDate', () => {
+  // The hub speaks UTC. A timestamp without an offset is not ambiguous in
+  // JavaScript — it is *defined* as local time — so every time in the interface
+  // was shown two hours early in Berlin, and the Reconciliation card called a
+  // healthy reconciler stopped.
+  it('reads a timestamp without an offset as UTC, not as local time', () => {
+    expect(parseApiDate('2026-09-12T18:23:36').toISOString()).toBe('2026-09-12T18:23:36.000Z')
+  })
+
+  it('leaves a timestamp that already carries its zone alone', () => {
+    // So the backend fix and this one cannot disagree.
+    expect(parseApiDate('2026-09-12T18:23:36+00:00').toISOString()).toBe(
+      '2026-09-12T18:23:36.000Z',
+    )
+    expect(parseApiDate('2026-09-12T20:23:36+02:00').toISOString()).toBe(
+      '2026-09-12T18:23:36.000Z',
+    )
+    expect(parseApiDate('2026-09-12T18:23:36Z').toISOString()).toBe('2026-09-12T18:23:36.000Z')
+  })
+
+  it('keeps sub-second precision, which the hub sends', () => {
+    expect(parseApiDate('2026-09-12T17:54:37.315189').toISOString()).toBe(
+      '2026-09-12T17:54:37.315Z',
+    )
   })
 })
