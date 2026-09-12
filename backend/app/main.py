@@ -40,13 +40,14 @@ from .services.driftarchive import configure as configure_drift_archive
 from .services.events import bus
 from .services.querylog import querylog_worker
 from .services.reconcile import reconcile_worker
+from .services.supervisor import supervise
 from .services.sync import retry_worker
 from .version import VERSION
 
 _settings = get_settings()
 configure_logging(
     _settings.log_level,
-    log_file=_settings.log_file,
+    log_file=_settings.log_path,
     max_bytes=_settings.log_file_max_bytes,
     backups=_settings.log_file_backups,
 )
@@ -125,10 +126,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await hubsettings.load(session)
 
     stop = asyncio.Event()
+    # Supervised rather than merely started. A worker that ends for any reason
+    # other than this stop event used to end for good, silently, while the hub
+    # went on serving requests as if all three were running — which is how a
+    # reconciler stopped on a Saturday afternoon and only the dashboard card knew.
     workers = [
-        asyncio.create_task(retry_worker(stop), name="retry"),
-        asyncio.create_task(reconcile_worker(stop), name="reconcile"),
-        asyncio.create_task(querylog_worker(stop), name="querylog"),
+        asyncio.create_task(supervise(name, factory, stop), name=name)
+        for name, factory in (
+            ("retry", lambda: retry_worker(stop)),
+            ("reconcile", lambda: reconcile_worker(stop)),
+            ("querylog", lambda: querylog_worker(stop)),
+        )
     ]
     app.state.stop_event = stop
     try:

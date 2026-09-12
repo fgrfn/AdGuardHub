@@ -17,7 +17,8 @@ All settings are environment variables prefixed with `ADGUARDHUB_`. In a contain
 | `ADGUARDHUB_HTTP_TIMEOUT` | `10` | Per-request timeout when talking to instances. |
 | `ADGUARDHUB_UPDATE_CHECK` | `true` | Seeds whether the hub looks for new releases — see [Staying up to date](install.md#staying-up-to-date). |
 | `ADGUARDHUB_LOG_LEVEL` | `INFO` | `DEBUG` adds the per-instance diagnostics — see [Logs](operations.md#logs). |
-| `ADGUARDHUB_LOG_FILE` | — | Also write a rotating log file at this path. Empty means stderr only. |
+| `ADGUARDHUB_LOG_FILE_ENABLED` | `true` | Keep a rotating log file. Off means stderr only — see [Keeping the log](operations.md#keeping-the-log). |
+| `ADGUARDHUB_LOG_FILE` | `<data dir>/adguardhub.log` | Where that file goes. |
 | `ADGUARDHUB_LOG_FILE_MAX_BYTES` | `5242880` | Rotate the log file once it reaches this size. |
 | `ADGUARDHUB_LOG_FILE_BACKUPS` | `3` | How many rotated log files to keep. |
 | `ADGUARDHUB_DRIFT_LOG_ENABLED` | `true` | Keep the drift archive — see [Logs](operations.md#logs). |

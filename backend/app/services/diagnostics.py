@@ -278,9 +278,12 @@ def _hub() -> dict[str, Any]:
         "python": platform.python_version(),
         "platform": platform.platform(terse=True),
         "log_level": settings.log_level,
-        # The path itself can name a home directory, and whether one is
-        # configured is the whole diagnostic content of the answer.
-        "log_file_configured": bool(settings.log_file),
+        # The path itself can name a home directory, and whether one is being
+        # written is the whole diagnostic content of the answer. Resolved rather
+        # than read raw: the default is on with an empty path, so `log_file`
+        # alone would report the healthy case as "no log kept" — which is the
+        # answer that sent one investigation looking for evidence that existed.
+        "log_file_configured": bool(settings.log_path),
         # An unset key means credentials are encrypted with a per-boot random
         # one, which explains "my nodes lost their passwords on restart" without
         # anybody having to ask.

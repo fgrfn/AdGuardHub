@@ -54,9 +54,17 @@ class Settings(BaseSettings):
     # what is wanted while something is misbehaving.
     log_level: str = "INFO"
 
-    # Empty means stderr only, which is right in a container: Docker captures it
-    # and `docker logs` reads it back. Set a path to also write a rotating file,
-    # for a deployment that would rather keep its own.
+    # On by default and beside the database, for the same reason the drift
+    # archive below is: stderr is captured by whatever started the hub, and what
+    # that keeps is not the hub's decision. `docker logs` holds the current
+    # container's output and loses it when the container is replaced, which is
+    # exactly what an upgrade does; a native install lands in the journal, which
+    # may be volatile. Both of those go away at the moment somebody restarts the
+    # hub — and restarting is the first thing anyone does when something is
+    # wrong, so the log was routinely destroyed by the act of investigating it.
+    #
+    # Empty means <data_dir>/adguardhub.log; see log_path.
+    log_file_enabled: bool = True
     log_file: str = ""
     log_file_max_bytes: int = 5 * 1024 * 1024
     log_file_backups: int = 3
@@ -74,6 +82,13 @@ class Settings(BaseSettings):
     @property
     def database_path(self) -> str:
         return os.path.join(self.data_dir.rstrip("/"), "adguardhub.db")
+
+    @property
+    def log_path(self) -> str:
+        """Where the hub's own log is written, or empty when it is switched off."""
+        if not self.log_file_enabled:
+            return ""
+        return self.log_file or os.path.join(self.data_dir.rstrip("/"), "adguardhub.log")
 
     @property
     def drift_log_path(self) -> str:

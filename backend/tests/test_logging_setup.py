@@ -294,3 +294,44 @@ async def test_basic_auth_success_is_not_logged_per_request(
             assert response.status_code == 200
 
     assert [r for r in caplog.records if "Signed in" in r.getMessage()] == []
+
+
+def test_the_log_is_kept_on_disk_by_default(tmp_path, monkeypatch) -> None:
+    """The default that the incident this changed was really about.
+
+    stderr is captured by whatever started the hub, and what that keeps is not
+    the hub's decision: `docker logs` holds the current container's output and an
+    upgrade replaces the container; a native install lands in a journal that may
+    be volatile. Both vanish when somebody restarts the hub — and restarting is
+    the first thing anyone does when something is wrong, so the evidence was
+    routinely destroyed by the act of looking for it.
+    """
+    from app.config import Settings
+
+    settings = Settings(data_dir=str(tmp_path))
+    assert settings.log_path == os.path.join(str(tmp_path), "adguardhub.log")
+
+
+def test_an_explicit_path_still_wins(tmp_path) -> None:
+    from app.config import Settings
+
+    chosen = str(tmp_path / "elsewhere" / "hub.log")
+    assert Settings(data_dir=str(tmp_path), log_file=chosen).log_path == chosen
+
+
+def test_the_log_file_can_be_switched_off(tmp_path) -> None:
+    """An operator who keeps their own copy should not be made to keep two."""
+    from app.config import Settings
+
+    settings = Settings(data_dir=str(tmp_path), log_file_enabled=False)
+    assert settings.log_path == ""
+
+
+def test_switching_it_off_beats_an_explicit_path(tmp_path) -> None:
+    """Off means off — the same rule the drift archive follows."""
+    from app.config import Settings
+
+    settings = Settings(
+        data_dir=str(tmp_path), log_file_enabled=False, log_file=str(tmp_path / "hub.log")
+    )
+    assert settings.log_path == ""
