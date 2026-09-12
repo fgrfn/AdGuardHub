@@ -7,6 +7,7 @@ import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
@@ -42,6 +43,7 @@ from .services.querylog import querylog_worker
 from .services.reconcile import reconcile_worker
 from .services.supervisor import supervise
 from .services.sync import retry_worker
+from .services.watchdog import reconcile_health, watchdog_worker
 from .version import VERSION
 
 _settings = get_settings()
@@ -136,6 +138,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             ("retry", lambda: retry_worker(stop)),
             ("reconcile", lambda: reconcile_worker(stop)),
             ("querylog", lambda: querylog_worker(stop)),
+            ("watchdog", lambda: watchdog_worker(stop)),
         )
     ]
     app.state.stop_event = stop
@@ -171,8 +174,22 @@ app.include_router(control.router)
 
 
 @app.get("/api/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok", "version": VERSION}
+async def health() -> dict[str, Any]:
+    """Liveness, and whether the safety net is actually running.
+
+    Deliberately unauthenticated and deliberately more than "the process
+    answers". A hub can serve every page perfectly while reconciliation has been
+    stopped for days — that was the whole failure — and an external monitor is
+    the one observer that does not need somebody to be looking at a dashboard.
+
+    `status` stays `ok` whatever the reconciler is doing: this endpoint is also
+    what the container's own start-up check waits for, and a fresh hub with
+    nothing configured is not unhealthy. The reconciler's state is reported
+    beside it, for a monitor to alert on if it chooses.
+    """
+    async with session_scope() as session:
+        reconcile = await reconcile_health(session)
+    return {"status": "ok", "version": VERSION, "reconcile": reconcile}
 
 
 # How the two halves of a built frontend may be cached. Getting this wrong is

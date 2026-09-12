@@ -256,6 +256,10 @@ async def test_the_hub_describes_itself_without_naming_its_paths(
     # An unset key means credentials are re-encrypted on every boot, which
     # explains "my nodes lost their passwords again" before anyone asks.
     assert bundle["hub"]["secret_key_set"] is True
+    # The question worth asking. `secret_key_set` alone says only "set in the
+    # environment", and reading it as "has a key at all" is how an operator was
+    # told twice to fix a hub that was working.
+    assert bundle["hub"]["secret_key_source"] in {"environment", "generated", "ephemeral"}
     # The path can name a home directory, so it is never in the bundle — only
     # whether a log is being kept, which is the diagnostic content of the answer.
     assert "log_file" not in bundle["hub"]
