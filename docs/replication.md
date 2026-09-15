@@ -85,6 +85,26 @@ An area a given AdGuard version does not implement is skipped rather than failin
 > settings and overlays just `enabled` — `/control/tls/configure` replaces the whole object, so a
 > partial write would erase the node's certificate.
 
+## Rule order is not replicated
+
+A node holding exactly the right rules in a different order is **not** drift, and is not
+corrected. Until v0.7.8 it was, and that was wrong in both directions at once.
+
+The hub has never let anybody *choose* an order. Rules go out in the order they were created, and
+nothing in the interface can move one — so the order being enforced on your nodes was an accident
+of insertion, not a decision. Enforcing it was not free either: every accepted write makes AdGuard
+reconfigure itself and rewrite `AdGuardHome.yaml`, so each of those corrections bought a
+reconfiguration of every node in exchange for nothing anyone had asked for.
+
+A node holding the same rule **twice** is still corrected. The comparison counts rules rather than
+treating them as a set, because a duplicate is state the hub did not put there — and under the old
+comparison it was reported as "present but in a different order", which named the wrong fault.
+
+If it ever turns out that order decides which of two contradicting rules wins on your nodes, the
+answer is not to bring this back: it is to let you set an order and replicate *that*. Enforcing one
+nobody chose would still be wrong. Worth knowing when weighing that up: allow rules do not
+contradict each other, so on a rule set that is all `@@` there is nothing for an order to decide.
+
 ## Comments in the rule set
 
 `!` and `#` lines are stored and replicated like any other line, in place. That matters more

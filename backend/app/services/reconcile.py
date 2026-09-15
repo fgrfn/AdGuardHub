@@ -15,6 +15,7 @@ import contextlib
 import json
 import logging
 import time
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -146,16 +147,35 @@ def _trim(items: list[str]) -> list[str]:
 
 
 def diff_rules(expected: list[str], actual: list[str]) -> Difference | None:
-    if expected == actual:
+    """What a node is missing or holding extra. **Order is not a difference.**
+
+    It used to be: a node holding exactly the right rules in another order was
+    reported as drift and corrected. That was indefensible in both directions.
+
+    The hub never let anyone *choose* an order — rules are pushed in the order
+    they were created and there is no way to move one — so what was being
+    enforced was an accident of insertion, not a decision. And enforcing it was
+    not free: every accepted write makes AdGuard reconfigure itself and rewrite
+    its YAML (see "A push reads before it writes"), so each correction bought a
+    reconfiguration of every node in exchange for nothing anybody had asked for.
+
+    Should order ever turn out to decide which of two contradicting rules wins,
+    the fix is not to restore this: it is to let the operator set an order, and
+    then compare against *that*. Enforcing an order nobody chose would still be
+    wrong.
+
+    Counted as multisets rather than sets, so a node holding the same rule twice
+    is still reported. Under the old comparison that came out as "present but in
+    a different order", which named the wrong fault.
+    """
+    wanted, held = Counter(expected), Counter(actual)
+    missing = sorted((wanted - held).elements())
+    extra = sorted((held - wanted).elements())
+    if not missing and not extra:
         return None
-    missing = [rule for rule in expected if rule not in set(actual)]
-    extra = [rule for rule in actual if rule not in set(expected)]
-    if missing or extra:
-        # Counted before the cap. "25 rule(s) missing" on a node that has lost
-        # four thousand of them would be a wrong number, not a shortened one.
-        summary = f"{len(missing)} rule(s) missing, {len(extra)} unexpected rule(s)"
-    else:
-        summary = "rules present but in a different order"
+    # Counted before the cap. "25 rule(s) missing" on a node that has lost
+    # four thousand of them would be a wrong number, not a shortened one.
+    summary = f"{len(missing)} rule(s) missing, {len(extra)} unexpected rule(s)"
     return Difference(
         PayloadKind.rules.value,
         summary,

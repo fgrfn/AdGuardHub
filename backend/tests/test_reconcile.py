@@ -24,6 +24,32 @@ def test_diff_rules_is_quiet_when_states_match() -> None:
     assert diff_rules(["||a.com^"], ["||a.com^"]) is None
 
 
+def test_a_node_holding_the_right_rules_in_another_order_is_not_drift() -> None:
+    """The hub never let anybody choose an order, so it had none to enforce.
+
+    Reported as drift and corrected until the decision was examined: rules go out
+    in the order they were created, nothing can move one, and every correction
+    bought a reconfiguration of the node in exchange for an accident of
+    insertion. Should order ever decide which of two contradicting rules wins,
+    the answer is to let the operator set one — not to enforce this.
+    """
+    assert diff_rules(["@@||a.com^", "||b.com^"], ["||b.com^", "@@||a.com^"]) is None
+
+
+def test_a_rule_the_node_holds_twice_is_still_drift() -> None:
+    """Counted rather than set-compared.
+
+    A duplicate is state the hub did not put there. Under the old comparison it
+    came out as "rules present but in a different order", which named the wrong
+    fault; under a set comparison it would not be reported at all.
+    """
+    difference = diff_rules(["||a.com^"], ["||a.com^", "||a.com^"])
+
+    assert difference is not None
+    assert difference.details["extra"] == ["||a.com^"]
+    assert difference.details["missing"] == []
+
+
 def test_diff_filter_lists_notices_a_disabled_subscription() -> None:
     expected = [RemoteFilterList("List", "https://e.com/l.txt", True, "blocklist")]
     actual = [RemoteFilterList("List", "https://e.com/l.txt", False, "blocklist")]
