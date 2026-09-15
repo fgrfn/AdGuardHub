@@ -263,6 +263,7 @@ export const de: Record<string, string> = {
   "More actions for {name}": "Weitere Aktionen für {name}",
   "No history yet — make a change and it appears here.": "Noch kein Verlauf — nehmen Sie eine Änderung vor, dann erscheint sie hier.",
   "Push now": "Jetzt übertragen",
+  "Nothing was pushed to {name}.": "Es wurde nichts an {name} übertragen.",
   "Push to {name} failed: {error}": "Übertragung an {name} fehlgeschlagen: {error}",
   "Remove {name} from AdGuardHub? Its own configuration is left as-is.": "{name} aus AdGuardHub entfernen? Die eigene Konfiguration der Instanz bleibt unverändert.",
   "Removed {name}.": "{name} entfernt.",

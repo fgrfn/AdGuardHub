@@ -217,9 +217,25 @@ Three things follow from where that gate sits, each of them deliberate:
   before the master import fills them, so treating that intermediate step as "configured" would
   put the gate back on the wrong side of the screen this fault was found behind.
 
-*Instances → ⋯ → Push now* is not gated either. It is a button someone presses while looking at
-one node, which is a different thing from a timer acting on its own — but on an empty hub it
-still means "make this node hold nothing", so it is the one place the old behaviour remains.
+*Instances → ⋯ → Push now* **asks first**, and only on an empty hub. Pressing a button is not a
+timer acting on its own — but it is not the same as *meaning* this either. Every other thing that
+button does is safe and routine and none of them warns, so an operator whose hub is empty for a
+reason they have not noticed — a fresh install pointed at a working node, a restored database —
+has nothing to tell this press apart from those.
+
+The question counts what would actually go, by asking the node first:
+
+> The hub holds no rule, no subscription and no imported settings, so a full push would delete
+> 24 rule(s) and 20 subscription(s) from node-1 and leave it empty. Import this node as the
+> master first, or repeat with confirm=true if erasing it is what you meant.
+
+A generality — *this may delete data* — is the kind of warning people click through. Two numbers
+are not. It stays the operator's decision; it is now a decision rather than a side effect.
+
+Nothing is asked when there is nothing to lose: a node that is already empty, or one that cannot
+be reached to be counted. The second is deliberate — the push is about to fail on its own, with
+its own error, and "I could not count what you would lose" says nothing about whether you meant
+it.
 
 ## When a correction does not hold
 
