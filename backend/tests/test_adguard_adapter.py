@@ -103,11 +103,18 @@ async def test_a_rule_set_the_node_already_holds_is_not_written_again() -> None:
     assert ("POST", "/control/filtering/set_rules") not in seen
 
 
-async def test_rule_order_still_counts_as_a_difference() -> None:
-    """The hub decides the order, and AdGuard applies rules in the order given.
+async def test_a_node_is_not_rewritten_just_to_reorder_it() -> None:
+    """This test asserted the opposite until the decision behind it was examined.
 
-    A set-based comparison here would call two different rule sets equal and
-    leave the node evaluating them the other way round.
+    The hub gives nobody a way to *choose* a rule order — rules go out in the
+    order they were created, and nothing can move one — so an order enforced on a
+    node was an accident of insertion, not a decision. Enforcing it cost a full
+    reconfiguration and a YAML rewrite on every node, in exchange for nothing
+    anybody had asked for.
+
+    If order ever turns out to decide which of two contradicting rules wins, the
+    answer is to let the operator set one and compare against *that*. Rewriting a
+    node to impose an order nobody chose would still be wrong.
     """
     seen: list[str] = []
 
@@ -118,6 +125,22 @@ async def test_rule_order_still_counts_as_a_difference() -> None:
         return httpx.Response(200, json={})
 
     await make_adapter(login_ok(handler)).push_rules(["||a.com^", "||b.com^"])
+
+    assert seen == []
+
+
+async def test_a_rule_the_node_holds_twice_is_still_rewritten() -> None:
+    """Counted, not set-compared. A duplicate is state the hub did not put there,
+    and dropping to a set would leave it standing for ever."""
+    seen: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/control/filtering/status":
+            return httpx.Response(200, json={"user_rules": ["||a.com^", "||a.com^"]})
+        seen.append(request.url.path)
+        return httpx.Response(200, json={})
+
+    await make_adapter(login_ok(handler)).push_rules(["||a.com^"])
 
     assert seen == ["/control/filtering/set_rules"]
 

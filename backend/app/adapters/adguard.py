@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -321,8 +322,15 @@ class AdGuardAdapter(DnsAdapter):
         every accepted write, so sending a rule set the node already holds costs
         exactly as much as sending a changed one and achieves nothing. The read
         is one GET of the same endpoint the caller is about to read anyway.
+
+        Compared **without regard to order**, for the same reason
+        ``services.reconcile.diff_rules`` no longer treats order as a difference:
+        the hub gives nobody a way to choose one, so rewriting a node purely to
+        reorder it enforces an accident of insertion at the price of a full
+        reconfiguration. Counted rather than set-compared, so a node holding a
+        rule twice is still rewritten down to holding it once.
         """
-        if await self.pull_rules() == rules:
+        if Counter(await self.pull_rules()) == Counter(rules):
             return
         await self._request("POST", "/control/filtering/set_rules", json={"rules": rules})
 
