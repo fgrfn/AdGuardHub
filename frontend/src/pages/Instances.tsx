@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { api } from '../api/client'
+import { ApiError, api } from '../api/client'
 import type { Instance } from '../api/types'
 import { InstanceForm } from '../components/InstanceForm'
 import { BLANK_DRAFT, type InstanceDraft, draftFrom } from '../components/instanceDraft'
@@ -98,7 +98,20 @@ export default function Instances() {
 
   const push = (instance: Instance) =>
     run(async () => {
-      const result = await api.pushInstance(instance.id)
+      let result
+      try {
+        result = await api.pushInstance(instance.id)
+      } catch (caught) {
+        // 409 means the hub is empty and this push would erase the node. The
+        // backend counted what would go, so the question names the real cost
+        // rather than a generality — and answering it repeats the same press
+        // with the answer attached.
+        if (!(caught instanceof ApiError) || caught.status !== 409) throw caught
+        if (!confirm(caught.message)) {
+          return t('Nothing was pushed to {name}.', { name: instance.name })
+        }
+        result = await api.pushInstance(instance.id, true)
+      }
       return result.error
         ? t('Push to {name} failed: {error}', { name: instance.name, error: result.error })
         : t('{name} now has the full hub configuration.', { name: instance.name })

@@ -130,7 +130,8 @@ export const api = {
     patch<Instance>(`/api/instances/${id}`, payload),
   deleteInstance: (id: number) => del(`/api/instances/${id}`),
   testInstance: (id: number) => post<{ ok: string; version: string }>(`/api/instances/${id}/test`),
-  pushInstance: (id: number) => post<{ ok: string; error: string }>(`/api/instances/${id}/push`),
+  pushInstance: (id: number, confirm = false) =>
+    post<{ ok: string; error: string }>(`/api/instances/${id}/push${query({ confirm })}`),
   importInstance: (id: number, payload: { replace: boolean; sections?: string[] }) =>
     post<ImportResult>(`/api/instances/${id}/import`, { ...payload, push_after_import: true }),
 

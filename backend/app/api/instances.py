@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import asdict
 
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from ..adapters import ADAPTERS, AdapterError, available_adapters
+from ..adapters import ADAPTERS, AdapterError, available_adapters, build_adapter
 from ..adapters import session as adapter_session
 from ..adapters.sections import SECTION_NAMES
 from ..config import get_settings
@@ -31,6 +32,7 @@ from ..services.importer import import_from_instance
 from ..services.sync import (
     ALL_KINDS,
     check_instance,
+    has_desired_state,
     process_retry_queue,
     push_to_instance,
     schedule_sync,
@@ -273,11 +275,56 @@ async def test_instance(instance_id: int, _: CurrentUser, session: SessionDep) -
 
 
 @router.post("/{instance_id}/push")
-async def push_instance(instance_id: int, _: CurrentUser, session: SessionDep) -> dict[str, str]:
-    """Force a full-state push to a single instance."""
+async def push_instance(
+    instance_id: int, _: CurrentUser, session: SessionDep, confirm: bool = False
+) -> dict[str, str]:
+    """Force a full-state push to a single instance.
+
+    Asks first when the hub has nothing to replicate, because on an empty hub
+    "push the full state" means "delete everything this node has". That is the
+    fault #106 fixed for the reconciliation timer, and this button is the one
+    place it deliberately remained: a timer acting alone is not the same as
+    somebody pressing a button.
+
+    But pressing a button is not the same as *meaning* this, either. The other
+    twelve things this button does are safe and routine, and none of them warns —
+    so an operator whose hub is empty for a reason they have not noticed (a fresh
+    install pointed at a working node, a restored database) has no way to tell
+    this press apart from those. The refusal counts what would go, by asking the
+    node, so the sentence names the actual cost rather than a generality.
+    """
     instance = await _get(session, instance_id)
+    if not confirm and not await has_desired_state(session):
+        loss = await _what_would_be_erased(instance)
+        if loss:
+            raise HTTPException(status.HTTP_409_CONFLICT, loss)
     error = await push_to_instance(session, instance, ALL_KINDS, "manual push")
     return {"ok": "false" if error else "true", "error": error}
+
+
+async def _what_would_be_erased(instance: Instance) -> str:
+    """What this node would lose to a push from an empty hub, as a sentence.
+
+    Empty when there is nothing to lose — either the node is already empty, in
+    which case the push is a no-op and a warning would be noise, or it cannot be
+    asked. A node that will not answer is not a reason to block the operator:
+    the push is about to fail on its own, and with its own error.
+    """
+    adapter = build_adapter(instance, get_crypto())
+    try:
+        async with contextlib.aclosing(adapter):
+            rules = len(await adapter.pull_rules())
+            lists = len(await adapter.pull_filter_lists())
+    except (AdapterError, ValueError):
+        return ""
+    if not rules and not lists:
+        return ""
+    return (
+        f"The hub holds no rule, no subscription and no imported settings, so a full push "
+        f"would delete {rules} rule(s) and {lists} subscription(s) from {instance.name} and "
+        f"leave it empty. Import this node as the master first, or repeat with confirm=true "
+        f"if erasing it is what you meant."
+    )
 
 
 @router.post("/{instance_id}/import")
