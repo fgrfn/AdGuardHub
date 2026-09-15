@@ -718,3 +718,91 @@ async def test_many_failures_are_summarised_rather_than_listed_in_full() -> None
     message = str(caught.value)
     assert "20 of 20" in message
     assert "and 17 more" in message
+
+
+async def test_the_query_log_says_which_list_the_rule_came_from() -> None:
+    """``filter_list_id`` sits beside the rule text and used to be dropped.
+
+    It is the answer to the question a filtering hub exists for — which of
+    twenty subscriptions blocked this — and the adapter read only ``text``.
+
+    The distinction that has to survive is absent versus zero: AdGuard numbers
+    the *custom* rule set 0, which is the set the hub owns, so defaulting a
+    missing field to 0 would credit the hub for every block a built-in module
+    made.
+    """
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "time": "2026-01-01T10:00:00Z",
+                        "question": {"name": "ads.example.com", "type": "A"},
+                        "client": "192.168.1.10",
+                        "reason": "FilteredBlackList",
+                        "rules": [{"text": "||ads.example.com^", "filter_list_id": 202}],
+                    },
+                    {
+                        "time": "2026-01-01T10:00:01Z",
+                        "question": {"name": "mine.example.com", "type": "A"},
+                        "client": "192.168.1.11",
+                        "reason": "FilteredBlackList",
+                        # 0 is AdGuard's id for the custom rule set.
+                        "rules": [{"text": "||mine.example.com^", "filter_list_id": 0}],
+                    },
+                    {
+                        "time": "2026-01-01T10:00:02Z",
+                        "question": {"name": "old.example.com", "type": "A"},
+                        "client": "192.168.1.12",
+                        "reason": "FilteredBlackList",
+                        # A build that sends the rule without naming a list.
+                        "rules": [{"text": "||old.example.com^"}],
+                    },
+                    {
+                        "time": "2026-01-01T10:00:03Z",
+                        "question": {"name": "fine.example.com", "type": "A"},
+                        "client": "192.168.1.13",
+                        "reason": "NotFilteredNotFound",
+                    },
+                ]
+            },
+        )
+
+    entries = await make_adapter(login_ok(handler)).query_log(100)
+
+    assert entries[0].filter_list_id == 202
+    assert entries[1].filter_list_id == 0, "the hub's own rule set, which is not 'no list'"
+    assert entries[2].filter_list_id is None, "absent must not read as 0"
+    assert entries[3].filter_list_id is None
+
+
+async def test_a_subscription_keeps_the_id_its_node_gave_it() -> None:
+    """Without it the query log's ``filter_list_id`` cannot be resolved at all.
+
+    Read-only and per node, like ``rules_count``: AdGuard assigns it at
+    ``add_url``, so the same URL is a different number on every node.
+    """
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "filters": [
+                    {
+                        "id": 202,
+                        "name": "HaGeZi Threat Feeds",
+                        "url": "https://h.com/t.txt",
+                        "enabled": True,
+                        "rules_count": 400000,
+                    }
+                ],
+                "whitelist_filters": [],
+            },
+        )
+
+    lists = await make_adapter(login_ok(handler)).pull_filter_lists()
+
+    assert lists[0].remote_id == 202
+    assert lists[0].rules_count == 400000

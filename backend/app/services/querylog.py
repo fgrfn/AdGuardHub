@@ -19,7 +19,7 @@ from ..config import get_settings
 from ..db import session_scope
 from ..models import Instance
 from ..runtime import get_crypto
-from . import hubsettings
+from . import filtersource, hubsettings
 from .events import bus
 
 logger = logging.getLogger(__name__)
@@ -98,6 +98,26 @@ class QueryLogBuffer:
 buffer = QueryLogBuffer(get_settings().querylog_buffer_size)
 
 
+async def _name_the_lists(adapter, instance: Instance, rows: list[dict[str, Any]]) -> None:
+    """Add the *name* of the list each row's rule came from, where one is knowable.
+
+    Never raises and never fails a poll. This is an explanation attached to a log
+    entry: worth having, never worth losing the entry over — and a node that will
+    not answer ``/control/filtering/status`` is still perfectly able to say what
+    it blocked.
+    """
+    if not any(row.get("filter_list_id") is not None for row in rows):
+        return
+    if filtersource.sources.needs_refresh(instance.id, filtersource.cited_ids(rows)):
+        filtersource.sources.note_attempt(instance.id)
+        try:
+            filtersource.sources.remember(instance.id, await adapter.pull_filter_lists())
+        except (AdapterError, ValueError) as exc:
+            logger.debug("Could not read the filter lists of %s: %s", instance.name, exc)
+    for row in rows:
+        row["filter_list"] = filtersource.sources.label(instance.id, row.get("filter_list_id"))
+
+
 async def poll_once() -> int:
     """Fetch the latest entries from every enabled instance. Returns the new-entry count."""
     settings = get_settings()
@@ -111,12 +131,18 @@ async def poll_once() -> int:
         adapter = build_adapter(instance, crypto)
         try:
             entries = await adapter.query_log(settings.querylog_fetch_limit)
+            rows = [asdict(entry) for entry in entries]
+            # Resolved here, against the node that wrote these rows, because an
+            # AdGuard filter id means nothing without one: the same subscription
+            # carries a different number on every node. Doing it at poll time
+            # also means it is done once per entry rather than on every render.
+            await _name_the_lists(adapter, instance, rows)
         except (AdapterError, ValueError) as exc:
             logger.debug("Query log poll failed for %s: %s", instance.name, exc)
             continue
         finally:
             await adapter.aclose()
-        added = await buffer.add(instance.name, [asdict(entry) for entry in entries])
+        added = await buffer.add(instance.name, rows)
         if added:
             total_new += len(added)
             await bus.publish("querylog", added[-settings.querylog_fetch_limit :])

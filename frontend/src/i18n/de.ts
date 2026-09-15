@@ -538,6 +538,7 @@ export const de: Record<string, string> = {
   "Import as master": "Als Master importieren",
   "Last seen": "Zuletzt gesehen",
   "Last synced": "Zuletzt synchronisiert",
+  "From list": "Aus Liste",
   "Matched rule": "Passende Regel",
   "No drift recorded yet.": "Noch keine Abweichung aufgezeichnet.",
   "Node": "Node",

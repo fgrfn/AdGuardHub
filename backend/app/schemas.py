@@ -529,6 +529,11 @@ class QueryLogEntryOut(BaseModel):
     answer_status: str
     blocked: bool
     rule: str
+    #: The name of the list the matched rule came from, resolved against the node
+    #: that logged the row. Empty when the node cited no rule, or cited a list the
+    #: hub could not name — an honest blank beats a confident "unknown list" in the
+    #: one column an operator reads to decide what to go and change.
+    filter_list: str = ""
     elapsed_ms: float
     upstream: str
 

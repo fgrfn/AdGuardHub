@@ -23,6 +23,7 @@ from app.main import app  # noqa: E402
 from app.services import (
     driftarchive,  # noqa: E402
     filtersizes,  # noqa: E402
+    filtersource,  # noqa: E402
     hubsettings,  # noqa: E402
 )
 from app.services.aggregate import invalidate_stats_cache  # noqa: E402
@@ -56,6 +57,9 @@ async def fresh_db(tmp_path, monkeypatch) -> AsyncIterator[None]:
     # served to the next.
     invalidate_stats_cache()
     filtersizes.invalidate()
+    # Per-node filter-id maps are process-wide too, and an id means nothing
+    # outside the node it came from — one test's map must not name another's.
+    filtersource.sources.reset()
     # The drift archive is a file handler opened once at import, against the data
     # directory the whole session shares. Pointed at this test's directory
     # instead, so one test's findings are never read back by the next — and so

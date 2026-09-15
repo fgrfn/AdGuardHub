@@ -186,6 +186,31 @@ A dry run (*apply_fixes=false*) is deliberately not recorded. It attempted nothi
 in would let "nothing to correct" mean "nothing was tried", in the one table built to be trusted
 about whether the safety net is running.
 
+## Which list blocked this
+
+A query log row names the rule that matched — `||ads.example.com^` — and on its own that does
+not narrow anything down. With twenty subscriptions the question is always *which list do I go
+and change*, and the rule text is the same whichever list it came from.
+
+So each row also names the list, under *From list* when you open it. AdGuard sends the answer
+beside the rule text and the hub resolves it; a rule you wrote yourself reads **Your own rules**,
+and a block from a protection module reads as that module.
+
+Two things are worth knowing about how that number is read, because both are places the answer
+could be confidently wrong:
+
+- **The id belongs to the node, not to the subscription.** AdGuard assigns it when the list is
+  added, so the same URL is a different number on each of your nodes, and the aggregated log
+  mixes rows from all of them. Every row is therefore resolved against the node that wrote it.
+  One shared table would look perfectly plausible and name the wrong list.
+- **An id the hub cannot explain leaves the field blank.** A list added on a node directly, say,
+  which reconciliation is about to remove anyway. "Unknown list" in the one field you read to
+  decide what to change is worse than nothing, because it reads as an answer.
+
+The node is asked for its list names at most every fifteen minutes, and immediately when a row
+cites a list the hub has not seen — so a subscription you have just added is named straight
+away, without the query log poll costing an extra request every five seconds.
+
 ## A hub with nothing in it replicates nothing
 
 Every push is *full state*: the hub computes what a node should hold and replaces the node's

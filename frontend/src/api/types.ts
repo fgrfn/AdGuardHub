@@ -69,6 +69,14 @@ export interface QueryLogEntry {
   answer_status: string
   blocked: boolean
   rule: string
+  /**
+   * Which of your lists the matched rule came from, named by the hub.
+   *
+   * Empty when the node cited no rule, or cited one the hub cannot name — the
+   * column stays blank rather than guessing, because "unknown list" in the field
+   * you read to decide what to change is worse than nothing.
+   */
+  filter_list: string
   elapsed_ms: number
   upstream: string
 }

@@ -338,6 +338,7 @@ class AdGuardAdapter(DnsAdapter):
                         enabled=bool(item.get("enabled")),
                         kind=kind,
                         rules_count=_int(item.get("rules_count")),
+                        remote_id=_int(item.get("id")),
                     )
                 )
         return result
@@ -573,8 +574,16 @@ class AdGuardAdapter(DnsAdapter):
         reason = str(row.get("reason") or "")
         rules = row.get("rules") or []
         rule_text = ""
+        filter_list_id: int | None = None
         if rules and isinstance(rules[0], dict):
             rule_text = str(rules[0].get("text") or "")
+            # Absent is not the same as 0: 0 is AdGuard's id for the custom rule
+            # set, which is precisely the one the hub owns and the answer an
+            # operator most wants. Defaulting a missing field to 0 would credit
+            # the hub for every block a built-in module made.
+            raw_id = rules[0].get("filter_list_id")
+            if raw_id is not None:
+                filter_list_id = _int(raw_id)
         elif row.get("rule"):
             rule_text = str(row["rule"])
         # AdGuard Home names this field elapsedMs, and sends it as a string. Reading
@@ -594,6 +603,7 @@ class AdGuardAdapter(DnsAdapter):
             answer_status=reason,
             blocked=reason not in _ALLOWED_REASONS,
             rule=rule_text,
+            filter_list_id=filter_list_id,
             elapsed_ms=elapsed,
             upstream=str(row.get("upstream") or ""),
         )
