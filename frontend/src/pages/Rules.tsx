@@ -81,6 +81,13 @@ export default function Rules() {
         : t('{rule} is now enabled.', { rule: rule.text })
     })
 
+  /** Drop the countdown: the rule turned out to be one worth keeping. */
+  const keep = (rule: Rule) =>
+    run(async () => {
+      await api.updateRule(rule.id, { expires_in_minutes: 0 })
+      return t('{rule} will now stay until you remove it.', { rule: rule.text })
+    })
+
   const remove = (rule: Rule) =>
     run(async () => {
       await api.deleteRule(rule.id)
@@ -198,9 +205,28 @@ export default function Rules() {
                     <td>
                       <Badge tone={rule.kind}>{t(rule.kind)}</Badge>
                     </td>
-                    <td>{originLabel(rule.origin, t)}</td>
+                    <td>
+                      {originLabel(rule.origin, t)}
+                      {/* Beside where it came from, because the two answer one
+                          question: a temporary allow from the query log is the
+                          shape of rule this exists for, and it should be
+                          obvious at a glance which of them will clean
+                          themselves up. */}
+                      {rule.expires_at ? (
+                        <div className="hint" title={formatTime(rule.expires_at)}>
+                          {t('expires {when}', { when: formatTime(rule.expires_at) })}
+                        </div>
+                      ) : null}
+                    </td>
                     <td>{formatTime(rule.updated_at)}</td>
                     <td className="right">
+                      {rule.expires_at ? (
+                        <>
+                          <button className="small" onClick={() => keep(rule)} disabled={busy}>
+                            {t('Keep')}
+                          </button>{' '}
+                        </>
+                      ) : null}
                       <button className="small" onClick={() => toggle(rule)} disabled={busy}>
                         {rule.enabled ? t('Disable') : t('Enable')}
                       </button>{' '}

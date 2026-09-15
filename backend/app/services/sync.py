@@ -65,9 +65,23 @@ ALL_KINDS: tuple[PayloadKind, ...] = (
 
 
 async def desired_rules(session: AsyncSession) -> list[str]:
-    """The rule text every instance should carry, in a stable order."""
+    """The rule text every instance should carry, in a stable order.
+
+    A rule past its expiry is excluded here as well as swept away by
+    ``services.expiry``, and the belt is worth having beside the braces: the
+    sweeper runs on a timer, and between a rule falling due and the next sweep
+    there is a window in which a reconciliation pass would otherwise read the
+    stale rule as desired state and push it *back* onto a node. For an allow rule
+    that is a hole in the filtering reopening itself.
+    """
+    now = utcnow().replace(tzinfo=None)
     result = await session.execute(
-        select(Rule).where(Rule.enabled.is_(True)).order_by(Rule.id.asc())
+        select(Rule)
+        .where(Rule.enabled.is_(True))
+        # `now` is naive, because SQLite drops the offset on write and hands the
+        # value back without one; an aware value cannot be compared to it.
+        .where((Rule.expires_at.is_(None)) | (Rule.expires_at > now))
+        .order_by(Rule.id.asc())
     )
     return [rule.text for rule in result.scalars().all()]
 

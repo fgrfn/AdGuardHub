@@ -101,6 +101,37 @@ filter nothing, and are edited and deleted like any other entry. Two limits wort
   reconciliation stripped the comments from your nodes, that text is gone; re-import from a node
   that still has them, or add them again.
 
+## Rules that clean up after themselves
+
+Most of a rule set is archaeology. Something broke, a domain was allowed from the query log to
+find out whether that was the cause, it worked — and the allow stayed, because nobody goes back
+to a thing that is working again. An allow rule kept past its purpose is a hole in the filtering
+that nobody remembers opening, and what makes them hard to clear out later is that by then
+nothing says which ones were meant to be temporary.
+
+So a rule can be given an expiry when it is written. *Allow temporarily…* in the query log offers
+15 minutes, an hour, 8 hours or a day; the *Rules* page shows the countdown beside where the rule
+came from, and **Keep** drops it for one that turned out to be worth having. Permanent stays the
+default and the primary button — most rules are meant to stand, and a countdown nobody asked for
+is worse than none.
+
+When a rule falls due the hub deletes it, records a version, and pushes the new rule set to every
+instance the way any other deletion is pushed. Nothing about it is special except that nobody had
+to remember. Four things are deliberate:
+
+- **No notification.** An expiry firing is the plan working. A message every time a
+  thirty-minute allow lapses is the traffic that makes people stop reading the ones that matter.
+  It is logged and it appears in *History*.
+- **No silent renewal.** A rule still needed is re-added, which takes one press and restates the
+  decision. Asking again also *restarts* the countdown — "allow this for 30 minutes" means thirty
+  minutes from now, not "you already did that".
+- **An expired rule is never pushed back.** The sweeper runs once a minute, and a rule that has
+  fallen due is excluded from the desired state immediately — otherwise a reconciliation pass
+  landing in that gap would push an expired allow back onto every node, reopening the hole by
+  itself.
+- **A week is the limit.** Beyond that it is a rule somebody means to keep, and it should be
+  written as one.
+
 ## Version history
 
 Every change to the hub — a rule, a subscription, a settings section, an import — records a

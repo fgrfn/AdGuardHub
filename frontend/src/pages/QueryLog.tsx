@@ -11,6 +11,22 @@ import { useT } from '../i18n'
 const MAX_ROWS = 500
 
 /**
+ * How long a temporary rule may last, offered as the durations people actually
+ * mean. "For a while" is not a number, and a free-text minutes box makes the
+ * operator invent one — so these are the answers to "long enough to find out
+ * whether this was the cause", plus one for an evening.
+ *
+ * Permanent stays the default and the primary button: most rules are meant to
+ * stand, and a countdown nobody asked for is worse than no countdown.
+ */
+const DURATIONS: { minutes: number; label: string }[] = [
+  { minutes: 15, label: '15 minutes' },
+  { minutes: 60, label: '1 hour' },
+  { minutes: 8 * 60, label: '8 hours' },
+  { minutes: 24 * 60, label: '1 day' },
+]
+
+/**
  * Identity of a row, for remembering which one is expanded.
  *
  * Deliberately free of the array index: new entries arrive over SSE every few
@@ -66,16 +82,23 @@ export default function QueryLog() {
     if (event.event === 'querylog' && filters.current.live) void load()
   })
 
-  async function act(entry: QueryLogEntry, mode: 'allow' | 'block') {
+  async function act(entry: QueryLogEntry, mode: 'allow' | 'block', minutes?: number) {
     setBusy(true)
     setError('')
     setMessage('')
     try {
       const rule =
         mode === 'allow'
-          ? await api.allowDomain(entry.question, 'querylog')
-          : await api.blockDomain(entry.question, 'querylog')
-      setMessage(t('{rule} added to the hub and pushed to every instance.', { rule: rule.text }))
+          ? await api.allowDomain(entry.question, 'querylog', '', minutes)
+          : await api.blockDomain(entry.question, 'querylog', '', minutes)
+      setMessage(
+        minutes
+          ? t('{rule} added to the hub and pushed everywhere. It is removed again {when}.', {
+              rule: rule.text,
+              when: formatTime(rule.expires_at),
+            })
+          : t('{rule} added to the hub and pushed to every instance.', { rule: rule.text }),
+      )
     } catch (caught) {
       setError(errorMessage(caught))
     } finally {
@@ -252,6 +275,30 @@ export default function QueryLog() {
                                 >
                                   {entry.blocked ? t('Block everywhere') : t('Allow everywhere')}
                                 </button>
+                                {/* The question this page is usually open to
+                                    answer is "is this domain the reason", and
+                                    the honest answer to it expires. Offered
+                                    beside the permanent buttons rather than
+                                    instead of them: most rules are meant to
+                                    stand. */}
+                                <select
+                                  aria-label={t('Allow for a limited time')}
+                                  style={{ flex: '0 0 auto', width: 'auto' }}
+                                  value=""
+                                  disabled={busy || !entry.question}
+                                  onChange={(event) => {
+                                    const minutes = Number(event.target.value)
+                                    event.target.value = ''
+                                    if (minutes) void act(entry, 'allow', minutes)
+                                  }}
+                                >
+                                  <option value="">{t('Allow temporarily…')}</option>
+                                  {DURATIONS.map((option) => (
+                                    <option key={option.minutes} value={option.minutes}>
+                                      {t(option.label)}
+                                    </option>
+                                  ))}
+                                </select>
                                 <p
                                   style={{
                                     margin: '0 0 0 6px',

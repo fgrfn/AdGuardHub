@@ -47,6 +47,8 @@ export interface Rule {
   origin: RuleOrigin
   enabled: boolean
   comment: string
+  /** When the hub removes this rule again, or null for one that stands. */
+  expires_at: string | null
   created_at: string
   updated_at: string
 }

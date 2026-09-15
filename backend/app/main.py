@@ -39,6 +39,7 @@ from .security import SecretKeyError, hash_password, verify_password
 from .services import hubsettings
 from .services.driftarchive import configure as configure_drift_archive
 from .services.events import bus
+from .services.expiry import expiry_worker
 from .services.querylog import querylog_worker
 from .services.reconcile import reconcile_worker
 from .services.supervisor import supervise
@@ -139,6 +140,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             ("reconcile", lambda: reconcile_worker(stop)),
             ("querylog", lambda: querylog_worker(stop)),
             ("watchdog", lambda: watchdog_worker(stop)),
+            ("expiry", lambda: expiry_worker(stop)),
         )
     ]
     app.state.stop_event = stop

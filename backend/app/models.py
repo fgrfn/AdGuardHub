@@ -139,6 +139,17 @@ class Rule(Base):
     origin: Mapped[str] = mapped_column(String(20), default=RuleOrigin.custom.value)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     comment: Mapped[str] = mapped_column(Text, default="")
+    #: When this rule stops applying, or NULL for a rule that stands until it is
+    #: deleted — which is nearly all of them.
+    #:
+    #: The case it exists for is the one that produced most of a real hub's rule
+    #: set: something broke, a domain was allowed from the query log to see
+    #: whether that was the cause, and the allow stayed for ever because nobody
+    #: goes back to a thing that is working again. An allow rule kept past its
+    #: purpose is a hole in the filtering nobody remembers opening.
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
