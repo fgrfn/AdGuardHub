@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from ..deps import CurrentUser, SessionDep
-from ..models import PayloadKind, Rule, RuleKind, RuleOrigin
+from ..models import PayloadKind, Rule, RuleKind, RuleOrigin, utcnow
 from ..schemas import BulkRulesRequest, DomainRuleRequest, RuleCreate, RuleOut, RuleUpdate
 from ..services.rules import allow_rule_for_domain, block_rule_for_domain, classify
 from ..services.sync import schedule_sync
@@ -23,19 +25,52 @@ async def _find_by_text(session: SessionDep, text: str) -> Rule | None:
     return result.scalars().first()
 
 
+def _expiry(minutes: int | None) -> datetime | None:
+    """A deadline from a duration, stored the way SQLite hands it back.
+
+    Naive, because SQLite drops the offset on write: storing an aware value here
+    and comparing it to a naive one read back is the kind of mismatch that
+    reads correct and is wrong by whatever the offset happens to be.
+    """
+    if not minutes:
+        return None
+    return utcnow().replace(tzinfo=None) + timedelta(minutes=minutes)
+
+
 async def _add_rule(
-    session: SessionDep, text: str, origin: RuleOrigin, comment: str, enabled: bool = True
+    session: SessionDep,
+    text: str,
+    origin: RuleOrigin,
+    comment: str,
+    enabled: bool = True,
+    expires_in_minutes: int | None = None,
 ) -> tuple[Rule, bool]:
     """Insert a rule, or return the existing one. Second element is True when created."""
     existing = await _find_by_text(session, text)
     if existing is not None:
+        changed = False
         if not existing.enabled and enabled:
             existing.enabled = True
+            changed = True
+        # Re-allowing a domain that is already allowed is how somebody extends a
+        # countdown, and the natural reading of "allow this for 30 minutes" is
+        # thirty minutes from now — not "you already did that". The same press
+        # also un-expires a rule: asking for a permanent one when a temporary one
+        # exists means the temporary one was not enough.
+        if expires_in_minutes is not None:
+            existing.expires_at = _expiry(expires_in_minutes)
+            changed = True
+        if changed:
             await session.commit()
             return existing, True
         return existing, False
     rule = Rule(
-        text=text, kind=classify(text).value, origin=origin.value, comment=comment, enabled=enabled
+        text=text,
+        kind=classify(text).value,
+        origin=origin.value,
+        comment=comment,
+        enabled=enabled,
+        expires_at=_expiry(expires_in_minutes),
     )
     session.add(rule)
     try:
@@ -71,7 +106,12 @@ async def list_rules(
 @router.post("", response_model=RuleOut, status_code=status.HTTP_201_CREATED)
 async def create_rule(payload: RuleCreate, user: CurrentUser, session: SessionDep) -> Rule:
     rule, created = await _add_rule(
-        session, payload.text, payload.origin, payload.comment, payload.enabled
+        session,
+        payload.text,
+        payload.origin,
+        payload.comment,
+        payload.enabled,
+        payload.expires_in_minutes,
     )
     if not created and rule.text == payload.text:
         raise HTTPException(status.HTTP_409_CONFLICT, "That rule already exists")
@@ -95,6 +135,10 @@ async def update_rule(
         rule.enabled = bool(data["enabled"])
     if "comment" in data:
         rule.comment = data["comment"] or ""
+    if "expires_in_minutes" in data:
+        # 0 means "make this permanent", which is the one thing a duration cannot
+        # express and the most likely thing to want from this field.
+        rule.expires_at = _expiry(data["expires_in_minutes"])
     try:
         await session.commit()
     except IntegrityError as exc:
@@ -126,7 +170,11 @@ async def allow_domain(
 ) -> Rule:
     """Allowlist a domain. Used by the Allowlist tab and the query log's whitelist action."""
     rule, created = await _add_rule(
-        session, allow_rule_for_domain(payload.domain), origin, payload.comment
+        session,
+        allow_rule_for_domain(payload.domain),
+        origin,
+        payload.comment,
+        expires_in_minutes=payload.expires_in_minutes,
     )
     if created:
         await record_version(session, f"allowlisted {payload.domain}", user)
@@ -142,7 +190,11 @@ async def block_domain(
     origin: RuleOrigin = Query(RuleOrigin.custom),
 ) -> Rule:
     rule, created = await _add_rule(
-        session, block_rule_for_domain(payload.domain), origin, payload.comment
+        session,
+        block_rule_for_domain(payload.domain),
+        origin,
+        payload.comment,
+        expires_in_minutes=payload.expires_in_minutes,
     )
     if created:
         await record_version(session, f"blocked {payload.domain}", user)

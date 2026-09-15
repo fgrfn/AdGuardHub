@@ -182,11 +182,20 @@ class ImportRequest(BaseModel):
 # -- rules -----------------------------------------------------------------
 
 
+#: Longest expiry the API accepts, in minutes. A week — long enough for "while
+#: we are away", short enough that it is still recognisably temporary. Anything
+#: beyond that is a rule somebody means to keep, and should be written as one.
+MAX_EXPIRY_MINUTES = 7 * 24 * 60
+
+
 class RuleCreate(BaseModel):
     text: str = Field(min_length=1, max_length=1000)
     origin: RuleOrigin = RuleOrigin.custom
     enabled: bool = True
     comment: str = ""
+    #: Minutes until the hub removes this rule again, or None for one that stands
+    #: until deleted. See services/expiry.
+    expires_in_minutes: int | None = Field(default=None, ge=1, le=MAX_EXPIRY_MINUTES)
 
     @field_validator("text")
     @classmethod
@@ -201,6 +210,9 @@ class RuleUpdate(BaseModel):
     text: str | None = Field(default=None, min_length=1, max_length=1000)
     enabled: bool | None = None
     comment: str | None = None
+    #: Set to change the countdown, or to 0 to make the rule permanent. Omitted
+    #: leaves it as it is — the same rule every other field here follows.
+    expires_in_minutes: int | None = Field(default=None, ge=0, le=MAX_EXPIRY_MINUTES)
 
 
 class RuleOut(ORMModel):
@@ -210,6 +222,8 @@ class RuleOut(ORMModel):
     origin: RuleOrigin
     enabled: bool
     comment: str
+    #: When the hub will remove this rule, or null for one that stands.
+    expires_at: UtcDatetime | None = None
     created_at: UtcDatetime
     updated_at: UtcDatetime
 
@@ -219,6 +233,9 @@ class DomainRuleRequest(BaseModel):
 
     domain: str = Field(min_length=1, max_length=253)
     comment: str = ""
+    #: The query log's reason for existing: allow this for half an hour to find
+    #: out whether it was the cause, without the allow outliving the question.
+    expires_in_minutes: int | None = Field(default=None, ge=1, le=MAX_EXPIRY_MINUTES)
 
     @field_validator("domain")
     @classmethod

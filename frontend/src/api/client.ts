@@ -139,13 +139,40 @@ export const api = {
     get<Rule[]>(`/api/rules${query(params)}`),
   createRule: (payload: { text: string; origin?: RuleOrigin; comment?: string }) =>
     post<Rule>('/api/rules', payload),
-  updateRule: (id: number, payload: { text?: string; enabled?: boolean; comment?: string }) =>
+  updateRule: (
+    id: number,
+    payload: {
+      text?: string
+      enabled?: boolean
+      comment?: string
+      /** 0 makes the rule permanent; omitted leaves the countdown as it is. */
+      expires_in_minutes?: number
+    },
+  ) =>
     patch<Rule>(`/api/rules/${id}`, payload),
   deleteRule: (id: number) => del(`/api/rules/${id}`),
-  allowDomain: (domain: string, origin: RuleOrigin = 'allowlist', comment = '') =>
-    post<Rule>(`/api/rules/allow${query({ origin })}`, { domain, comment }),
-  blockDomain: (domain: string, origin: RuleOrigin = 'custom', comment = '') =>
-    post<Rule>(`/api/rules/block${query({ origin })}`, { domain, comment }),
+  allowDomain: (
+    domain: string,
+    origin: RuleOrigin = 'allowlist',
+    comment = '',
+    expiresInMinutes?: number,
+  ) =>
+    post<Rule>(`/api/rules/allow${query({ origin })}`, {
+      domain,
+      comment,
+      expires_in_minutes: expiresInMinutes,
+    }),
+  blockDomain: (
+    domain: string,
+    origin: RuleOrigin = 'custom',
+    comment = '',
+    expiresInMinutes?: number,
+  ) =>
+    post<Rule>(`/api/rules/block${query({ origin })}`, {
+      domain,
+      comment,
+      expires_in_minutes: expiresInMinutes,
+    }),
   bulkRules: (text: string, origin: RuleOrigin = 'custom') =>
     post<Rule[]>('/api/rules/bulk', { text, origin }),
 
