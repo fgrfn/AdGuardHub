@@ -217,6 +217,10 @@ export default function QueryLog() {
                             <div className="detail">
                               <div className="detail-grid">
                                 <Fact label={t('Matched rule')} value={entry.rule || '—'} mono />
+                                {/* Directly under the rule, because the two are
+                                    one answer: the rule says what matched, this
+                                    says which of your lists to go and change. */}
+                                <Fact label={t('From list')} value={entry.filter_list || '—'} />
                                 <Fact label={t('Question type')} value={entry.question_type || '—'} />
                                 <Fact label={t('Filtering result')} value={entry.answer_status || '—'} mono />
                                 <Fact

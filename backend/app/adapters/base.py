@@ -36,6 +36,12 @@ class RemoteFilterList:
     # the node has — and it is deliberately not part of the drift comparison,
     # because two nodes on different refresh schedules legitimately disagree.
     rules_count: int = 0
+    #: The node's own id for this list, which is what its query log cites when a
+    #: rule from it matches. Read-only and **per node**: AdGuard assigns it from
+    #: a clock-seeded counter at `add_url`, so the same subscription has
+    #: different ids on two nodes. Like ``rules_count`` it is never pushed and
+    #: never compared — it belongs to the node, not to the subscription.
+    remote_id: int = 0
 
 
 @dataclass(slots=True)
@@ -62,6 +68,10 @@ class QueryLogEntry:
     rule: str = ""
     elapsed_ms: float = 0.0
     upstream: str = ""
+    #: Which list the matched rule came from, as the node numbers its lists.
+    #: Meaningless on its own — see ``services.filtersource``, which turns it
+    #: into a name. ``None`` when the node cited no rule at all.
+    filter_list_id: int | None = None
 
 
 @dataclass(slots=True)

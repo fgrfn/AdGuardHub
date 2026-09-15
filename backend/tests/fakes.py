@@ -104,9 +104,20 @@ class FakeAdapter(DnsAdapter):
         # not forget how many rules it parsed because the hub renamed a list or
         # toggled it. The hub always sends 0 (it never stores list contents), so
         # replacing wholesale would wipe the counts on every sync.
-        held = {(item.kind, item.url): item.rules_count for item in self.state.filter_lists}
+        # `remote_id` belongs to the node for the same reason `rules_count` does:
+        # AdGuard assigns it when the list is added, and the hub never sends one.
+        # A double that dropped it on every push could not express the query log's
+        # central fact — that an id identifies a list *on one node*.
+        held = {
+            (item.kind, item.url): (item.rules_count, item.remote_id)
+            for item in self.state.filter_lists
+        }
         self.state.filter_lists = [
-            replace(item, rules_count=held.get((item.kind, item.url), item.rules_count))
+            replace(
+                item,
+                rules_count=held.get((item.kind, item.url), (item.rules_count, 0))[0],
+                remote_id=held.get((item.kind, item.url), (0, item.remote_id))[1],
+            )
             for item in lists
         ]
         self.state.push_calls += 1
