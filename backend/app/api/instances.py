@@ -25,7 +25,7 @@ from ..schemas import (
     InstanceUpdate,
 )
 from ..semver import is_newer, parse_version
-from ..services import filtersizes
+from ..services import filtersizes, filtersource
 from ..services.aggregate import invalidate_stats_cache
 from ..services.events import bus
 from ..services.importer import import_from_instance
@@ -216,6 +216,13 @@ async def update_instance(
         instance.password_encrypted = get_crypto().encrypt(password) if password else ""
     adapter_session.store.forget(previous_key)
     adapter_session.store.forget((instance.base_url, instance.username))
+    if instance.base_url != previous_key[0]:
+        # Same row, different AdGuard. The filter ids the hub remembers were
+        # assigned by the old one, and the new one's counter is unrelated — but an
+        # id that happens to exist on both is *known*, so nothing would refresh the
+        # map and the query log would read one node's rows against the other's
+        # names until the TTL ran out.
+        filtersource.sources.forget(instance.id)
     if "enabled" in data or "maintenance" in data:
         # Disabled wins over maintenance: an instance nobody syncs at all is not
         # "being worked on". Otherwise the status is cleared rather than guessed —
@@ -252,6 +259,12 @@ async def delete_instance(instance_id: int, _: CurrentUser, session: SessionDep)
     for job in jobs.scalars().all():
         await session.delete(job)
     adapter_session.store.forget((instance.base_url, instance.username))
+    # The filter-id map is keyed by row id, and SQLite hands a deleted row's id to
+    # the next instance that is added. Left behind, this node's list names would be
+    # inherited by a different node entirely, and the query log would name its
+    # lists confidently and wrongly — the exact failure the per-node map exists to
+    # prevent (see services.filtersource).
+    filtersource.sources.forget(instance.id)
     await session.delete(instance)
     await session.commit()
     invalidate_stats_cache()

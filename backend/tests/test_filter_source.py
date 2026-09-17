@@ -231,3 +231,65 @@ async def test_the_lists_are_not_fetched_when_no_row_cites_one(
         FakeAdapter.pull_filter_lists = original  # type: ignore[method-assign]
 
     assert calls == 0
+
+
+# --------------------------------------------------------------------------
+# The map outliving the node it belongs to
+# --------------------------------------------------------------------------
+
+#: The same two lists as EASYLIST/HAGEZI, numbered the other way round — which is
+#: the ordinary case, since each node numbers its subscriptions in the order it
+#: happened to add them.
+SWAPPED = [
+    RemoteFilterList("EasyList", "https://e.com/l.txt", True, "blocklist", 0, 202),
+    RemoteFilterList("HaGeZi Threat Feeds", "https://h.com/t.txt", True, "blocklist", 0, 101),
+]
+
+
+async def test_a_deleted_nodes_names_are_not_inherited_by_the_next_node(
+    auth_client: httpx.AsyncClient,
+) -> None:
+    """The map is keyed by row id, and SQLite hands a deleted id to the next row.
+
+    So "node 1" after a delete and an add is a different machine with the same
+    key, and the names left behind are the previous one's. Nothing would catch it
+    either: an id both nodes happen to use is *known*, so no refresh is due, and
+    the column would name a list the operator does not even subscribe to on that
+    node.
+    """
+    old_id = await add_instance(auth_client, "a", A)
+    FakeAdapter.state_for(A).filter_lists = [EASYLIST, HAGEZI]
+    FakeAdapter.state_for(A).query_log = [entry("first.example.com", filter_list_id=202)]
+    await poll_once()
+    assert (await logged(auth_client, "first.example.com"))["filter_list"] == "HaGeZi Threat Feeds"
+
+    assert (await auth_client.delete(f"/api/instances/{old_id}")).status_code == 204
+
+    new_id = await add_instance(auth_client, "b", B)
+    assert new_id == old_id, "the premise: SQLite reuses the deleted row's id"
+    FakeAdapter.state_for(B).filter_lists = SWAPPED
+    FakeAdapter.state_for(B).query_log = [entry("second.example.com", filter_list_id=202)]
+
+    await poll_once()
+
+    assert (await logged(auth_client, "second.example.com"))["filter_list"] == "EasyList"
+
+
+async def test_pointing_a_node_at_another_url_drops_its_remembered_names(
+    auth_client: httpx.AsyncClient,
+) -> None:
+    """Same row, different AdGuard — and its counter has nothing to do with the old one."""
+    instance_id = await add_instance(auth_client, "a", A)
+    FakeAdapter.state_for(A).filter_lists = [EASYLIST, HAGEZI]
+    FakeAdapter.state_for(A).query_log = [entry("first.example.com", filter_list_id=202)]
+    await poll_once()
+    assert (await logged(auth_client, "first.example.com"))["filter_list"] == "HaGeZi Threat Feeds"
+
+    moved = await auth_client.patch(f"/api/instances/{instance_id}", json={"base_url": B})
+    assert moved.status_code == 200, moved.text
+    FakeAdapter.state_for(B).filter_lists = SWAPPED
+    FakeAdapter.state_for(B).query_log = [entry("second.example.com", filter_list_id=202)]
+
+    await poll_once()
+
+    assert (await logged(auth_client, "second.example.com"))["filter_list"] == "EasyList"
