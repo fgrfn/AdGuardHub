@@ -262,6 +262,11 @@ The node is asked for its list names at most every fifteen minutes, and immediat
 cites a list the hub has not seen — so a subscription you have just added is named straight
 away, without the query log poll costing an extra request every five seconds.
 
+Removing a node, or pointing an existing one at a different URL, discards its names on the spot
+rather than letting them age out. Both are cases where the fifteen minutes would be long enough
+to matter: the names left behind belong to a machine that is no longer there, and an id the new
+machine happens to use as well would count as *known*, so nothing would go and ask.
+
 ## A hub with nothing in it replicates nothing
 
 Every push is *full state*: the hub computes what a node should hold and replaces the node's
