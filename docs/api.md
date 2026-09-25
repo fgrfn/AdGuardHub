@@ -26,5 +26,11 @@ the password arrives on every request, it is worth remembering that this travels
 over plain HTTP — the same reason the hub belongs on the LAN or behind a VPN rather than on the
 open internet.
 
-Two honest limits: DHCP is not offered (the hub never manages it), and `filtering/refresh` is
-a no-op because the hub tracks subscription URLs rather than their contents.
+One honest limit: DHCP is not offered, because the hub never manages it.
+
+`filtering/refresh` is passed on to every node, which is where the lists actually live — the hub
+holds subscription URLs, never their contents, so "check for updates" means asking each AdGuard to
+go and download now rather than waiting out its own interval. The `updated` count is the largest
+any single node reported, not the sum: these are one set of subscriptions replicated everywhere, so
+adding the nodes together would count the same list twice. A node held in maintenance is skipped,
+and a node that cannot be reached does not stop the others.

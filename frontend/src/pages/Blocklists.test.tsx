@@ -16,12 +16,15 @@ const LISTS: FilterList[] = [
   { id: 3, name: "HaGeZi's Allowlist", url: 'https://e.test/45.txt', kind: 'allowlist', enabled: true },
 ] as FilterList[]
 
-const { filterLists, filterSizes } = vi.hoisted(() => ({
+const { filterLists, filterSizes, refreshFilterLists } = vi.hoisted(() => ({
   filterLists: vi.fn(),
   filterSizes: vi.fn(),
+  refreshFilterLists: vi.fn(),
 }))
 
-vi.mock('../api/client', () => ({ api: { filterLists, filterSizes } }))
+vi.mock('../api/client', () => ({
+  api: { filterLists, filterSizes, refreshFilterLists },
+}))
 // The sub-tab bar needs a router; the page's own tabs are plain state.
 vi.mock('../components/SubTabs', () => ({ SubTabs: () => null }))
 
@@ -33,6 +36,7 @@ function show() {
     instances_reporting: 1,
     instances_total: 1,
   })
+  refreshFilterLists.mockResolvedValue({ instances: [], updated: 0 })
   return render(
     <I18nProvider>
       <Blocklists />
@@ -86,5 +90,89 @@ describe('Blocklists', () => {
 
     expect(container.textContent).toContain('No subscriptions of this kind.')
     expect(container.textContent).not.toContain('No subscriptions yet.')
+  })
+})
+
+describe('when a list last arrived', () => {
+  function withSizes(lists: unknown[]) {
+    filterLists.mockResolvedValue(LISTS.slice(0, 1))
+    filterSizes.mockResolvedValue({
+      lists,
+      total_rules: 0,
+      instances_reporting: 1,
+      instances_total: 1,
+    })
+    refreshFilterLists.mockResolvedValue({ instances: [], updated: 0 })
+    return render(
+      <I18nProvider>
+        <Blocklists />
+      </I18nProvider>,
+    )
+  }
+
+  const SIZE = {
+    url: 'https://e.test/1.txt',
+    kind: 'blocklist',
+    rules_count: 10,
+    agreed: true,
+    per_instance: [
+      { instance_id: 1, instance_name: 'node-a', rules_count: 10, last_updated: null },
+    ],
+    last_updated: null,
+  }
+
+  it('says never when no node has ever downloaded it', async () => {
+    // The fault worth catching: AdGuard keeps a subscription it cannot fetch, so
+    // a rotted URL stays on the node and simply stops changing.
+    const { container } = withSizes([SIZE])
+    await waitFor(() => expect(container.textContent).toContain('AdGuard DNS filter'))
+
+    expect(container.textContent).toContain('never')
+  })
+
+  it('shows the age when a node has one', async () => {
+    const when = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString()
+    const { container } = withSizes([
+      {
+        ...SIZE,
+        last_updated: when,
+        per_instance: [
+          { instance_id: 1, instance_name: 'node-a', rules_count: 10, last_updated: when },
+        ],
+      },
+    ])
+    await waitFor(() => expect(container.textContent).toContain('AdGuard DNS filter'))
+
+    expect(container.textContent).toContain('3 h ago')
+  })
+})
+
+describe('checking for updates', () => {
+  it('asks the nodes and says how many lists changed', async () => {
+    show()
+    refreshFilterLists.mockResolvedValue({
+      instances: [{ instance_id: 1, instance_name: 'node-a', updated: 2, error: '' }],
+      updated: 2,
+    })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Check for updates' }))
+
+    await waitFor(() => expect(refreshFilterLists).toHaveBeenCalled())
+    await screen.findByText(/2 list\(s\) updated\./)
+  })
+
+  it('names a node that could not be asked rather than reporting a clean run', async () => {
+    show()
+    refreshFilterLists.mockResolvedValue({
+      instances: [
+        { instance_id: 1, instance_name: 'node-a', updated: 1, error: '' },
+        { instance_id: 2, instance_name: 'node-b', updated: 0, error: 'unreachable' },
+      ],
+      updated: 1,
+    })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Check for updates' }))
+
+    await screen.findByText(/node-b could not be asked\./)
   })
 })

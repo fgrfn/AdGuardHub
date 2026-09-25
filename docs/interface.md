@@ -69,6 +69,13 @@ come back from the nodes, because the hub never sees the file. A node that has n
 list yet leaves a dash rather than a zero, and where two nodes report different sizes (they
 refresh on their own schedules) the row is marked and the tooltip breaks it down per node.
 
+An *Updated* column says when each list last arrived — the most recent any node reports, since
+they refresh on their own schedules. **never** is the reading that matters: AdGuard keeps a
+subscription it cannot download rather than dropping it, so a URL that has rotted does not
+disappear from a node, it just stops changing. *Check for updates* asks every node to download now
+instead of waiting out its own interval; the hub cannot do it itself, and a node that cannot be
+reached is named rather than folded into the count.
+
 <img src="./screenshots/subscriptions.png" width="900" alt="The filter lists page listing four blocklist URLs with their enabled state" />
 
 Instances. Each AdGuard Home is added once, with credentials encrypted before they are stored.

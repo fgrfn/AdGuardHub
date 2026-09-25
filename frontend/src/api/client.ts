@@ -178,6 +178,11 @@ export const api = {
 
   filterLists: (kind?: ListKind) => get<FilterList[]>(`/api/filter-lists${query({ kind })}`),
   filterSizes: () => get<FilterSizes>('/api/filter-lists/sizes'),
+  refreshFilterLists: () =>
+    post<{
+      instances: { instance_id: number; instance_name: string; updated: number; error: string }[]
+      updated: number
+    }>('/api/filter-lists/refresh'),
   createFilterList: (payload: { name: string; url: string; kind: ListKind }) =>
     post<FilterList>('/api/filter-lists', payload),
   updateFilterList: (id: number, payload: { name?: string; enabled?: boolean }) =>

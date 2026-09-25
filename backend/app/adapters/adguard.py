@@ -41,6 +41,19 @@ def _int(value: Any) -> int:
         return 0
 
 
+def _fetched_at(value: Any) -> str:
+    """When a subscription was last downloaded, or "" for never.
+
+    AdGuard sends Go's zero time — ``0001-01-01T00:00:00Z`` — for a list it has
+    never managed to fetch, and older builds omit the field. Both mean the same
+    thing and both have to read as "never": passing the zero time through would
+    put the year 1 in the interface and, worse, make "never fetched" look like an
+    answer rather than the warning it is.
+    """
+    text = str(value or "")
+    return "" if text.startswith("0001-01-01") else text
+
+
 def _web_link(value: Any) -> str:
     """A URL the interface may offer as a link, or "" when it must not.
 
@@ -347,6 +360,7 @@ class AdGuardAdapter(DnsAdapter):
                         kind=kind,
                         rules_count=_int(item.get("rules_count")),
                         remote_id=_int(item.get("id")),
+                        last_updated=_fetched_at(item.get("last_updated")),
                     )
                 )
         return result
@@ -425,6 +439,27 @@ class AdGuardAdapter(DnsAdapter):
             },
         )
 
+    async def refresh_filter_lists(self, *, allowlists: bool = False) -> int:
+        """``POST /control/filtering/refresh``, which re-downloads every subscription.
+
+        On the node's own generous timeout, not the configured one: this makes
+        AdGuard fetch and parse every list it holds before it answers, which is
+        the same work — and the same minutes — that adding one list costs.
+
+        AdGuard separates the two kinds here, so the caller asks for one at a
+        time; ``updated`` counts the lists whose contents actually changed, which
+        is normally far fewer than the number fetched.
+        """
+        response = await self._request(
+            "POST",
+            "/control/filtering/refresh",
+            json={"whitelist": allowlists},
+            timeout=LIST_FETCH_TIMEOUT,
+        )
+        try:
+            return _int((response.json() or {}).get("updated"))
+        except ValueError as exc:
+            raise AdapterError("POST /control/filtering/refresh returned a non-JSON body") from exc
 
     # -- configuration sections ------------------------------------------
 

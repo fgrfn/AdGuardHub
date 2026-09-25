@@ -673,4 +673,9 @@ export const de: Record<string, string> = {
   "Filter by list": "Nach Liste filtern",
   "Any list": "Beliebige Liste",
   "Search a domain, a client, a rule or a list": "Domain, Client, Regel oder Liste suchen",
+  "Check for updates": "Auf Updates prüfen",
+  "{count} list(s) updated.": "{count} Liste(n) aktualisiert.",
+  "{names} could not be asked.": "{names} konnte(n) nicht gefragt werden.",
+  "{ago} ago": "vor {ago}",
+  "No instance reports ever having downloaded this list. AdGuard keeps a subscription it cannot fetch, so a URL that has stopped working stays on the node and quietly goes stale.": "Keine Instanz meldet, diese Liste jemals heruntergeladen zu haben. AdGuard behält ein Abonnement, das es nicht laden kann — eine URL, die nicht mehr funktioniert, bleibt also auf dem Node stehen und veraltet still.",
 }
