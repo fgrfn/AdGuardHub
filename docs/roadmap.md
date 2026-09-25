@@ -345,6 +345,123 @@ through next time, and the backend test suite gained a per-test timeout: two tes
 v0.7.1 hung the whole suite instead of failing, which for a test about something that never
 returns is the one unacceptable outcome.
 
+**v0.7.3** is about the reconciler's own record — and one thing that record would have made
+obvious much sooner.
+
+Every push is full state, so an **empty** central state is not a neutral value: read literally it
+says "these nodes should hold nothing". A second AdGuardHub, started to try something out and left
+standing on step 1 of the onboarding wizard with a production node already entered, emptied that
+node of every rule and every subscription — then again five minutes later, and for days. Nothing
+was misconfigured; the hub did exactly what it is built to do. Reconciliation and the sync path
+now decline to replicate a hub that holds nothing at all, and say so rather than acting on it.
+
+The rest is the record. A pass that finds nothing wrote nothing, which is right — two nodes on a
+five-minute timer would otherwise put several hundred rows a day into a table nobody would read —
+but it meant an empty drift log said either "healthy fleet" or "the reconciler stopped weeks
+ago", and the dashboard rendered both identically. Every pass is now recorded, with consecutive
+passes that ended the same way sharing one row and a counter, so a healthy hub holds a single line
+rather than three hundred a day saying nothing happened. A reconciler the operator switched off
+says so instead of being reported as broken: somebody did that on purpose, and calling their
+decision a fault is how a status panel loses the reader it needs when something really is wrong.
+
+A repeated finding used to be held back from the drift log, and held back meant thrown away — so
+the row that survived was the *first* sighting, and a fault repeating right now rendered
+identically to one that stopped this morning. The repeat is counted on the row that stands now,
+with the time it was last seen, and each row carries how long its correction attempt took: "timed
+out" is one thing, "timed out after exactly 10.0 s" names the setting that caused it. Findings are
+also appended to a `drift.log` beside the database, one JSON object per line, untrimmed and in the
+order they happened — the live view is capped at 500 rows and can be emptied, which is right for a
+view and wrong for evidence. It is on by default, because an archive nobody switched on is empty
+exactly when they discover they needed it.
+
+And pushes stopped writing what the node already holds. "Full state" says what a push *means*, not
+how many requests it makes: the rule set and nine of the eleven managed sections were written on
+every push regardless, and every accepted write makes AdGuard reconfigure itself and rewrite
+`AdGuardHome.yaml`. One edit to one section reconfigured every node nine times over. The
+comparison already existed in the reconciler; the push path simply did not use it.
+
+**v0.7.4 and v0.7.5** are the same commit under two numbers: the reconciliation interval's default
+moved from five minutes to fifteen. Nothing about propagation rides on that timer — every change is
+pushed the moment it is made, and a node that was unreachable is caught by the retry queue on its
+own much shorter interval. What is left for the timer is drift somebody caused outside the hub, and
+a quarter of an hour is ample for that; five minutes meant re-reading both nodes' entire
+configuration 288 times a day to find nothing 287 of them, and each pass pulls rules, subscriptions
+and eleven sections from every node.
+
+The default seeds a fresh database only. An existing hub keeps the number it holds, because that
+number is the operator's decision and moving it underneath them would be the silent kind of change
+this hub exists to avoid.
+
+**v0.7.6** gave the background workers a supervisor, and the log somewhere to live. Both gaps came
+out of one incident: the reconciler stopped at 15:50 on a Saturday, nothing said so except a
+dashboard card two hours later, and the restart that followed destroyed the only log that could
+have said why.
+
+The three timers were started with a bare `create_task` and then trusted. Each catches `Exception`
+around its own body, which covers a pass that goes wrong; none of them covered the *loop* ending —
+a cancellation that is not a shutdown is not an `Exception`, and a return from an unexpected branch
+is quieter still. Nothing awaited the task until shutdown, so the hub went on serving every request
+as though all three were running. Each now runs under a supervisor that logs how it ended and
+starts it again, with no attempt cap — a worker that keeps dying should keep saying so — and a
+delay that grows to a minute so a crash loop costs one line a minute rather than a busy CPU.
+
+The log's problem was that stderr is kept by whoever started the hub, and what they keep is not the
+hub's decision: `docker logs` holds the current container's output and an upgrade replaces the
+container, a native install lands in a journal that may be volatile, and the 500 lines in the
+interface live in memory. All of them vanish on restart — which is the first thing anybody does
+when something looks wrong, so the evidence was routinely destroyed by the act of looking for it.
+There is a rotating file beside the database now, on by default.
+
+**v0.7.7** starts with a false alarm, and the correction matters more than the features.
+
+The Reconciliation card reported "the last pass was 2 h ago, and the interval is 300 seconds" on a
+hub whose reconciler had never stopped. SQLite has no timestamp type, so a stored value comes back
+without the offset it was written with, and the API sent it on without one. A browser parses an
+offset-less timestamp as *local* time, by definition — so in UTC+2 every timestamp the hub sent
+arrived two hours in the past, and a pass from two minutes ago rendered as two hours old. Every
+datetime the API sends now carries its offset explicitly.
+
+That is worth stating plainly because two changes in this line were built on the belief that a
+worker had died: v0.7.6's supervisor and this release's stall notification. Both are worth having
+on their own — nothing watched a worker that ended, and nothing said a word about a reconciler
+that stopped — but neither was the fault in front of us, and the roadmap should not read as though
+they were.
+
+The rest: something now says when reconciliation has stopped, rather than leaving it to be noticed
+on a card somebody has to go and look at, and it stays quiet about the three states that are not a
+stall — switched off, nothing to replicate, no pass recorded yet. A pass also has a deadline
+(four-fifths of the interval), because a pass that never returns holds the loop that was supposed
+to detect it. And the diagnostics page stopped claiming the encryption key was unset when it was
+generated and persisted on first start — a field that told operators their node passwords would not
+survive a restart, which was not true.
+
+**v0.7.8** is four things the daily use of the hub asked for.
+
+A query log row named the rule that matched and never the list it came from, which with twenty
+subscriptions is the difference between "the banking app is broken" and "turn off this one list, or
+add this one exception". AdGuard sends the answer beside the rule text; turning that number into a
+name is the part only the hub can do, and the trap is that the number belongs to the **node**, not
+to the subscription — so every row is read against the node that wrote it, and an id the hub cannot
+explain leaves the field blank rather than guessing.
+
+A rule can now be given an expiry when it is written. Most of a real rule set is archaeology:
+something broke, a domain was allowed from the query log to find out whether that was the cause,
+it worked, and the allow stayed — because nobody goes back to a thing that is working again. There
+is deliberately no renewal and no notification: a rule still needed is re-added, which restates the
+decision, and a message every time a thirty-minute allow lapses is how people stop reading the
+ones that matter.
+
+Rule **order** stopped counting as drift, reversing a decision made in v0.7.3 — where the push
+path learned to read before writing and kept order as a difference on the way past. The hub has
+never let anybody choose an order — rules go out in the order they were created
+and nothing in the interface can move one — so what was being enforced on the nodes was an accident
+of insertion, and enforcing it bought a reconfiguration of every node in exchange for nothing
+anybody had asked for. Counted as multisets rather than sets, so a node holding the same rule twice
+is still corrected.
+
+And *Push now* on a hub that holds nothing asks first, naming what the node would lose. v0.7.3
+closed that door on the timer; this is the same door held open by hand.
+
 ## Next
 
 Translating the drift log's summaries: they are generated in the backend and stored as English
