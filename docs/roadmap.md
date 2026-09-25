@@ -462,6 +462,58 @@ is still corrected.
 And *Push now* on a hub that holds nothing asks first, naming what the node would lose. v0.7.3
 closed that door on the timer; this is the same door held open by hand.
 
+**v0.8.0** is the first minor since the 0.7 line settled, and most of it is about the hub saying
+things it already knew and had not been asked the right way for.
+
+The query log had one filter beyond search and node — *blocked only* — and that is a boolean over
+a field which is not one. AdGuard sends a *reason*, and the adapter reduces it: anything it counts
+as unfiltered comes out "not blocked", and `NotFilteredWhiteList` is in that set. So a query one of
+your **own allow rules** let through read, in every column, exactly like a query nothing had an
+opinion about. Whitelisting is the reason this hub exists and allow rules are written from that
+very page, and whether they were firing could not be asked there at all. *Blocked* is one response
+among several now — any, blocked, allowed by a rule, not filtered — with the last deliberately the
+remainder rather than "everything not blocked", so an allowance cannot hide inside it. The list a
+block came from became selectable, which is the step between "this list did it" and "turn it off or
+write one exception". And the search box, which had offered "a domain, a client or a rule" while
+searching the first two, now searches the rule and the list name as well: `@@` used to find
+nothing.
+
+*Check for updates* on the filter lists is new, and what it replaces is worse than nothing. The
+AdGuard-compatible surface answered `{"updated": 0}` to `POST /control/filtering/refresh` without
+doing anything, on the true but wrongly-applied grounds that the hub holds URLs rather than
+contents — so a phone remote or a Home Assistant automation pressing it got a success, and not one
+node went and looked. It is passed on to every node now, both kinds, best effort: a node that
+refuses is named and the rest still go, and a node in maintenance is left alone. The number
+reported is the largest a single node updated rather than the sum, since these are one set of
+subscriptions replicated everywhere and adding the nodes would count the same list twice.
+
+**Automations that call that endpoint should know it now does real work** — it makes each node
+download and parse every list before answering, which takes minutes rather than returning
+instantly.
+
+Beside it, an *Updated* column. AdGuard keeps a subscription it cannot download rather than
+dropping it, so a URL that has rotted never disappears from a node — it stops changing, silently.
+`last_updated` was in the same payload the rule counts already came from and was simply not read.
+**never** is the reading that matters, and two things have to produce it: Go's zero time, which
+AdGuard sends for a list it has never fetched, and an older build omitting the field.
+
+Two fixes. A node that stopped answering had *every* push attempt against it reported: the retry
+queue re-pushes each open job on its own timer, three payload kinds every thirty seconds by
+default, so one outage produced several hundred identical notifications an hour to every notifier.
+The hub already knew better — `check_instance` gates its outage notice on the transition, and the
+comment above the push path claimed the same for both of its notifications while only one of them
+did it. It is reported on the transition now, and again when the *reason* changes, because a node
+that stops timing out and starts refusing the credentials is a different fault that nobody has been
+told about. The notifier targets are also tried at once rather than in sequence, on their own
+five-second timeout: a push notifies from inside the lock that serialises pushes to that node, so
+three targets in a row stacked three timeouts in front of every other push to it.
+
+The second is one of ours, from v0.7.8. The query log's per-node map of filter ids was keyed by the
+instance's row id and never cleared, and SQLite hands a deleted row's id to the next one inserted —
+so deleting a node and adding another gave the new one the old one's list names. Nothing would have
+caught it either: an id both machines happen to use is *known*, so no refresh was due. That is
+exactly the failure the per-node map exists to prevent.
+
 ## Next
 
 Translating the drift log's summaries: they are generated in the backend and stored as English
