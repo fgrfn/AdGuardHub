@@ -19,11 +19,24 @@ async def get_querylog(
     limit: int = Query(200, ge=1, le=2000),
     search: str = "",
     instance: str = "",
+    status: str = Query("", pattern="^(blocked|allowlisted|processed)?$"),
+    filter_list: str = "",
     blocked_only: bool = False,
 ) -> list[dict[str, object]]:
     return await querylog.buffer.snapshot(
-        limit, search=search, instance=instance, blocked_only=blocked_only
+        limit,
+        search=search,
+        instance=instance,
+        status=status,
+        filter_list=filter_list,
+        blocked_only=blocked_only,
     )
+
+
+@router.get("/querylog/lists")
+async def querylog_lists(_: CurrentUser) -> dict[str, list[str]]:
+    """The lists the buffered entries actually name, for the *From list* filter."""
+    return {"lists": await querylog.buffer.filter_lists()}
 
 
 @router.post("/querylog/refresh")

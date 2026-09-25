@@ -29,6 +29,35 @@ def _entry_key(instance_name: str, entry: dict[str, Any]) -> tuple[str, str, str
     return (instance_name, entry["time"], entry["question"], entry["client"])
 
 
+#: AdGuard's reason for a query that one of *our own* allow rules let through.
+#: See ``adapters.adguard._ALLOWED_REASONS``: it is one of the values that make
+#: ``blocked`` false, which is why an allowlist hit used to be indistinguishable
+#: from an ordinary unfiltered query.
+WHITELISTED = "NotFilteredWhiteList"
+
+#: What ``status`` accepts. ``""`` is everything.
+#:
+#: Three values rather than a checkbox because ``blocked`` is a boolean over a
+#: field that is not one: the node sends a reason, and collapsing it lost the
+#: answer this hub exists to give. A query let through by an allow rule is
+#: ``blocked=False`` — identical, in every column, to a query nothing touched —
+#: so "which of my allowances are actually firing" could not be asked at all.
+STATUSES = ("blocked", "allowlisted", "processed")
+
+
+def matches_status(entry: dict[str, Any], status: str) -> bool:
+    """Whether one entry belongs in the chosen status."""
+    if status == "blocked":
+        return bool(entry["blocked"])
+    if status == "allowlisted":
+        return entry.get("answer_status") == WHITELISTED
+    if status == "processed":
+        # Not filtered *and* not let through by a rule: the queries nothing in
+        # the hub's configuration had an opinion about.
+        return not entry["blocked"] and entry.get("answer_status") != WHITELISTED
+    return True
+
+
 class QueryLogBuffer:
     """Bounded ring buffer of merged log entries, newest last."""
 
@@ -60,23 +89,53 @@ class QueryLogBuffer:
         *,
         search: str = "",
         instance: str = "",
+        status: str = "",
+        filter_list: str = "",
         blocked_only: bool = False,
     ) -> list[dict[str, Any]]:
         async with self._lock:
             entries = list(self._entries)
         needle = search.lower().strip()
         if needle:
+            # The rule and the list it came from are searched too. They were not,
+            # while the field's own placeholder offered "a domain, a client or a
+            # rule" — so typing `@@||` or a list's name found nothing, on the one
+            # control that says what it searches.
             entries = [
                 entry
                 for entry in entries
-                if needle in entry["question"].lower() or needle in entry["client"].lower()
+                if needle in entry["question"].lower()
+                or needle in entry["client"].lower()
+                or needle in entry.get("rule", "").lower()
+                or needle in entry.get("filter_list", "").lower()
             ]
         if instance:
             entries = [entry for entry in entries if entry["instance"] == instance]
-        if blocked_only:
-            entries = [entry for entry in entries if entry["blocked"]]
+        # Kept working alongside ``status``. It has been a query parameter of every
+        # released hub, and something on somebody's network may be passing it;
+        # breaking that to tidy up a signature is not worth a line of code.
+        # ``status`` wins when both are given, being the more specific of the two.
+        if not status and blocked_only:
+            status = "blocked"
+        if status:
+            entries = [entry for entry in entries if matches_status(entry, status)]
+        if filter_list:
+            entries = [entry for entry in entries if entry.get("filter_list") == filter_list]
         entries.sort(key=lambda entry: entry["time"], reverse=True)
         return entries[:limit]
+
+    async def filter_lists(self) -> list[str]:
+        """Every list named in the buffer right now, for the filter's options.
+
+        Read from the buffer rather than from the hub's subscriptions, because the
+        two are not the same set: the built-in modules ("Safe browsing", "Your own
+        rules") name themselves here and are not subscriptions at all, and a list
+        whose rows have all aged out of the buffer is not worth offering as a
+        filter that would come back empty.
+        """
+        async with self._lock:
+            entries = list(self._entries)
+        return sorted({entry.get("filter_list", "") for entry in entries} - {""})
 
     def resize(self, maxlen: int) -> None:
         """Change the retained-entry cap, keeping the newest entries."""

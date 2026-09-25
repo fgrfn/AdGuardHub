@@ -184,8 +184,14 @@ export const api = {
     patch<FilterList>(`/api/filter-lists/${id}`, payload),
   deleteFilterList: (id: number) => del(`/api/filter-lists/${id}`),
 
-  queryLog: (params: { limit?: number; search?: string; instance?: string; blocked_only?: boolean }) =>
-    get<QueryLogEntry[]>(`/api/querylog${query(params)}`),
+  queryLog: (params: {
+    limit?: number
+    search?: string
+    instance?: string
+    status?: string
+    filter_list?: string
+  }) => get<QueryLogEntry[]>(`/api/querylog${query(params)}`),
+  queryLogLists: () => get<{ lists: string[] }>('/api/querylog/lists'),
   refreshQueryLog: () => post<{ new_entries: number }>('/api/querylog/refresh'),
 
   jobs: (openOnly = true) => get<PushJob[]>(`/api/jobs${query({ open_only: openOnly })}`),

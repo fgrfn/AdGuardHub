@@ -187,5 +187,9 @@
   "Whether encryption is switched on. Certificates stay per node.",
   "Whether filtering is on, and how often the lists are refreshed.",
   "Yandex",
-  "YouTube"
+  "YouTube",
+  "Any response",
+  "Blocked",
+  "Allowed by a rule",
+  "Not filtered"
 ]
