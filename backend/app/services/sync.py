@@ -277,9 +277,10 @@ async def _push_to_instance(
     kinds: tuple[PayloadKind, ...],
     reason: str,
 ) -> str:
-    # Read once, before the probe: both notifications below are edge-triggered on
-    # it, and after the push either branch has already overwritten the status.
+    # Read once, before the probe: the notifications below are edge-triggered on
+    # these, and after the push either branch has already overwritten both.
     previous = instance.status
+    previous_error = instance.last_error
     adapter = build_adapter(instance, get_crypto())
     refused: dict[str, list[str]] = {}
     try:
@@ -291,12 +292,25 @@ async def _push_to_instance(
     except (AdapterError, ValueError) as exc:
         error = str(exc)
         was_online = previous == InstanceStatus.online.value
-        logger.warning(
-            "Push to %s failed (%s): %s — queued for retry",
-            instance.name,
-            reason or "sync",
-            error,
-        )
+        # The same rule check_instance follows, and for the same reason. The retry
+        # queue re-pushes every open job on its own timer — three payload kinds
+        # every thirty seconds by default — so reporting each attempt meant a
+        # message per kind per pass for as long as a node stayed down: several
+        # hundred an hour, to every notifier, all saying the same sentence. What
+        # is worth telling is that the push is failing, and that it is failing
+        # for a *different* reason than last time; the repetition is not news.
+        first_failure = was_online or previous_error != error
+        if first_failure:
+            logger.warning(
+                "Push to %s failed (%s): %s — queued for retry",
+                instance.name,
+                reason or "sync",
+                error,
+            )
+        else:
+            logger.debug(
+                "Push to %s still failing (%s): %s", instance.name, reason or "sync", error
+            )
         instance.status = InstanceStatus.unreachable.value
         instance.last_error = error
         for kind in kinds:
@@ -306,11 +320,12 @@ async def _push_to_instance(
             "instance.status",
             {"id": instance.id, "name": instance.name, "status": instance.status, "error": error},
         )
-        await notify(
-            EVENT_PUSH_FAILED,
-            f"Push to {instance.name} failed",
-            f"{reason or 'Sync'} could not be applied: {error}. Queued for retry.",
-        )
+        if first_failure:
+            await notify(
+                EVENT_PUSH_FAILED,
+                f"Push to {instance.name} failed",
+                f"{reason or 'Sync'} could not be applied: {error}. Queued for retry.",
+            )
         if was_online:
             await notify(
                 EVENT_INSTANCE_UNREACHABLE,
