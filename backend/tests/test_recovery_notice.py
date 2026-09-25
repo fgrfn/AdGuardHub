@@ -21,7 +21,11 @@ from app.models import Instance, InstanceStatus, PayloadKind
 from app.services import notify as notify_module
 from app.services import reconcile as reconcile_module
 from app.services import sync as sync_module
-from app.services.notify import EVENT_INSTANCE_RECOVERED, EVENT_INSTANCE_UNREACHABLE
+from app.services.notify import (
+    EVENT_INSTANCE_RECOVERED,
+    EVENT_INSTANCE_UNREACHABLE,
+    EVENT_PUSH_FAILED,
+)
 from app.services.sync import check_instance, push_to_instance
 
 from .fakes import FakeAdapter
@@ -232,3 +236,92 @@ async def test_a_target_can_subscribe_to_it(auth_client: httpx.AsyncClient) -> N
     )
     assert created.status_code in (200, 201), created.text
     assert EVENT_INSTANCE_RECOVERED in created.json()["events"]
+
+
+# --------------------------------------------------------------------------
+# The push that keeps failing
+# --------------------------------------------------------------------------
+
+
+async def test_a_node_that_stays_down_reports_the_failed_push_once(
+    auth_client: httpx.AsyncClient, sent: list[tuple[str, str]]
+) -> None:
+    """The same rule as above, on the event that never followed it.
+
+    The retry queue re-pushes every open job on its own timer — three payload
+    kinds every thirty seconds by default. Reporting each attempt meant a message
+    per kind per pass for as long as the node was down: several hundred an hour,
+    to every notifier, each one the same sentence about the same outage.
+    """
+    instance_id = await _instance(auth_client)
+    await _set_status(instance_id, InstanceStatus.online)
+    FakeAdapter.state_for(A).offline = True
+    sent.clear()
+
+    for _ in range(5):
+        async with session_scope() as session:
+            await push_to_instance(
+                session, await session.get(Instance, instance_id), ALL_KINDS, "retry"
+            )
+
+    assert _events(sent) == [EVENT_PUSH_FAILED, EVENT_INSTANCE_UNREACHABLE], (
+        f"one message per outage, not one per attempt — got {_events(sent)}"
+    )
+
+
+async def test_a_different_failure_is_reported_again(
+    auth_client: httpx.AsyncClient, sent: list[tuple[str, str]]
+) -> None:
+    """Silence is for the repetition, not for the node.
+
+    A node that stops timing out and starts refusing the credentials is a
+    different fault with a different fix, and the operator has been told nothing
+    about it yet.
+    """
+    instance_id = await _instance(auth_client)
+    await _set_status(instance_id, InstanceStatus.online)
+    state = FakeAdapter.state_for(A)
+    state.offline = True
+    sent.clear()
+
+    async def attempt() -> None:
+        async with session_scope() as session:
+            await push_to_instance(
+                session, await session.get(Instance, instance_id), ALL_KINDS, "retry"
+            )
+
+    await attempt()
+    await attempt()
+    state.offline_error = "401: the credentials were refused"
+    await attempt()
+    await attempt()
+
+    assert _events(sent).count(EVENT_PUSH_FAILED) == 2, (
+        f"the new reason is news, the repeats are not — got {_events(sent)}"
+    )
+
+
+async def test_the_failure_is_reported_again_after_a_recovery(
+    auth_client: httpx.AsyncClient, sent: list[tuple[str, str]]
+) -> None:
+    """A second outage is a second outage, even with the identical error text."""
+    instance_id = await _instance(auth_client)
+    await _set_status(instance_id, InstanceStatus.online)
+    state = FakeAdapter.state_for(A)
+    sent.clear()
+
+    async def attempt() -> None:
+        async with session_scope() as session:
+            await push_to_instance(
+                session, await session.get(Instance, instance_id), ALL_KINDS, "retry"
+            )
+
+    state.offline = True
+    await attempt()
+    await attempt()
+    state.offline = False
+    await attempt()  # back up, which clears the recorded error
+    state.offline = True
+    await attempt()
+
+    assert _events(sent).count(EVENT_PUSH_FAILED) == 2

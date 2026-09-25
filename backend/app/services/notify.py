@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -9,7 +10,6 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..config import get_settings
 from ..db import session_scope
 from ..models import Instance, InstanceStatus, NotifierTarget
 from .events import bus
@@ -36,6 +36,16 @@ KNOWN_EVENTS = (
     EVENT_RECONCILE_RESUMED,
 )
 NOTIFIER_TYPES = ("homeassistant", "discord", "gotify")
+
+#: How long one webhook gets to accept a POST.
+#:
+#: Its own number rather than the configured ``http_timeout``, which exists for a
+#: very different conversation: that one is tuned for asking an AdGuard node to
+#: apply a configuration, and raising it — as someone whose node is slow to accept
+#: a list reasonably might — must not also decide how long a push waits on a dead
+#: Gotify. Five seconds, because a webhook that cannot accept a POST in five is
+#: not the thing that is going to get anybody's attention anyway.
+NOTIFY_TIMEOUT = 5.0
 
 
 def build_payload(target: NotifierTarget, event: str, title: str, message: str) -> dict[str, Any]:
@@ -97,13 +107,23 @@ async def notify(event: str, title: str, message: str) -> None:
             wanted = [target for target in targets if target_wants(target, event)]
             if not wanted:
                 return
-            timeout = get_settings().http_timeout
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                for target in wanted:
-                    error = await send_to_target(client, target, event, title, message)
-                    if error:
-                        logger.warning("Notifier '%s' failed: %s", target.name, error)
-                    target.last_error = error
+            # In parallel, because the callers of this are holding things. A push
+            # notifies while it holds that node's push lock, so three targets tried
+            # one after another meant three timeouts stacked in front of every
+            # other push to the same node — for no gain, since the targets know
+            # nothing about each other. One slow webhook now costs one timeout
+            # rather than its place in a queue.
+            async with httpx.AsyncClient(timeout=NOTIFY_TIMEOUT) as client:
+                errors = await asyncio.gather(
+                    *(
+                        send_to_target(client, target, event, title, message)
+                        for target in wanted
+                    )
+                )
+            for target, error in zip(wanted, errors, strict=True):
+                if error:
+                    logger.warning("Notifier '%s' failed: %s", target.name, error)
+                target.last_error = error
             await session.commit()
     except Exception:  # pragma: no cover - defensive
         logger.exception("Notification dispatch failed for event %s", event)
@@ -135,8 +155,10 @@ async def notify_if_recovered(instance: Instance, previous: str) -> None:
 
 
 async def test_target(session: AsyncSession, target: NotifierTarget) -> str:
-    timeout = get_settings().http_timeout
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    # The same timeout the real deliveries get. A Test button that waits longer
+    # than delivery does would pass on a target whose notifications then time out,
+    # which is the one answer it must not give.
+    async with httpx.AsyncClient(timeout=NOTIFY_TIMEOUT) as client:
         error = await send_to_target(
             client,
             target,

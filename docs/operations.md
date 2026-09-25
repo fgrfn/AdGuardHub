@@ -254,12 +254,28 @@ specific events or to all of them:
 | `instance.unreachable` | An instance stopped responding |
 | `instance.recovered` | An instance started responding again |
 | `push.failed` | A push failed and went into the retry queue |
+| `reconcile.stalled` | Reconciliation stopped running |
+| `reconcile.resumed` | It is running again |
 
-The two instance events are **edge-triggered**: one message when a node goes,
-one when it comes back, however long the outage lasts and however often the hub
-polls in between. A target that subscribes to *all* events picks the new one up
-automatically; a target that lists its events explicitly has to add it, since
-silently widening a subscription you configured would be the wrong default.
+These are **edge-triggered**: one message when a node goes, one when it comes
+back, however long the outage lasts and however often the hub tries in between.
+That matters most for `push.failed`, because the retry queue re-pushes every open
+job on its own timer — three payload kinds every thirty seconds by default — so
+reporting each attempt meant several hundred identical messages an hour for one
+outage. It is reported again when the *reason* changes: a node that stops timing
+out and starts refusing the credentials is a different fault with a different fix,
+and one you have not been told about yet.
+
+A target that subscribes to *all* events picks up a new one automatically; a
+target that lists its events explicitly has to add it, since silently widening a
+subscription you configured would be the wrong default.
+
+Each notification gets five seconds per target, and the targets are tried at the
+same time rather than one after another. Deliberately not the configured HTTP
+timeout: that one is tuned for asking a node to apply a configuration, and raising
+it must not also decide how long a push waits on a webhook that has stopped
+answering. *Test* uses the same five seconds as delivery does, so it cannot pass
+on a target whose real notifications would time out.
 
 - **Home Assistant** — point it at `http://<ha>:8123/api/webhook/<id>` and trigger an automation
   on that webhook. The JSON body carries `event`, `title` and `message`.
