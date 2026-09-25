@@ -668,4 +668,9 @@ export const de: Record<string, string> = {
   "The upgrade failed (status {status}). Nothing was rolled back — the hub is still running the version it was.": "Die Aktualisierung ist fehlgeschlagen (Status {status}). Es wurde nichts zurückgenommen — der Hub läuft weiterhin mit der bisherigen Version.",
   "The upgrade was requested but nothing picked it up. This hub was probably installed before the updater existed — re-run the installer once by hand and the button will work from then on.": "Die Aktualisierung wurde angefordert, aber nichts hat sie aufgegriffen. Dieser Hub wurde vermutlich installiert, bevor es den Updater gab — führen Sie das Installationsskript einmal von Hand aus, danach funktioniert die Schaltfläche.",
   "The hub will be replaced with the newest release and restarted, so it is unreachable for a minute or two. Your database, your instance credentials and adguardhub.env are not touched. DNS on your nodes keeps working throughout — they answer queries on their own.": "Der Hub wird durch die neueste Version ersetzt und neu gestartet und ist dabei ein bis zwei Minuten nicht erreichbar. Ihre Datenbank, die Zugangsdaten Ihrer Instanzen und adguardhub.env bleiben unberührt. Das DNS Ihrer Nodes läuft durchgehend weiter — sie beantworten Anfragen eigenständig.",
+  "Check for updates": "Auf Updates prüfen",
+  "{count} list(s) updated.": "{count} Liste(n) aktualisiert.",
+  "{names} could not be asked.": "{names} konnte(n) nicht gefragt werden.",
+  "{ago} ago": "vor {ago}",
+  "No instance reports ever having downloaded this list. AdGuard keeps a subscription it cannot fetch, so a URL that has stopped working stays on the node and quietly goes stale.": "Keine Instanz meldet, diese Liste jemals heruntergeladen zu haben. AdGuard behält ein Abonnement, das es nicht laden kann — eine URL, die nicht mehr funktioniert, bleibt also auf dem Node stehen und veraltet still.",
 }

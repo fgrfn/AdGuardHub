@@ -118,7 +118,21 @@ export interface ListSize {
   rules_count: number
   /** Whether every node that answered reported the same size for this list. */
   agreed: boolean
-  per_instance: { instance_id: number; instance_name: string; rules_count: number }[]
+  per_instance: {
+    instance_id: number
+    instance_name: string
+    rules_count: number
+    /** When this node last downloaded the list; null when it never has. */
+    last_updated: string | null
+  }[]
+  /**
+   * The most recent download any node reports, or null when none has one.
+   *
+   * Null is the answer worth reading: AdGuard keeps a subscription it cannot
+   * fetch rather than dropping it, so a rotted URL never disappears from a node —
+   * it just stops changing.
+   */
+  last_updated: string | null
 }
 
 export interface FilterSizes {

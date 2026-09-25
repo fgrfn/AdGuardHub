@@ -37,6 +37,7 @@ from ..deps import (
 from ..models import FilterList, Instance, ListKind, PayloadKind, Rule
 from ..schemas import ControlLogin
 from ..security import check_password
+from ..services import filtersizes
 from ..services import versions as version_service
 from ..services.aggregate import cached_stats
 from ..services.config import get_section, loads, set_section
@@ -352,8 +353,21 @@ async def set_url(
 
 @router.post("/filtering/refresh")
 async def refresh_filters(_: ControlUser) -> dict[str, int]:
-    """The hub tracks subscription URLs, not their contents — nothing to refresh here."""
-    return {"updated": 0}
+    """Pass the request on to every node, which is where the lists actually live.
+
+    This used to answer ``{"updated": 0}`` without doing anything, on the grounds
+    that the hub holds URLs rather than contents. True, and the wrong conclusion:
+    a phone remote or a Home Assistant automation pressing *check for updates*
+    against the hub got a success and a zero, and not one node went and looked.
+
+    The number reported is the largest any single node updated, not the sum. A
+    client asking this question means "how many of my lists changed", and the
+    hub's subscriptions are one set replicated everywhere — adding the nodes
+    together would count the same list twice. Same reasoning as the rule counts
+    in ``services.filtersizes``.
+    """
+    results = await filtersizes.refresh_all()
+    return {"updated": max((item.updated for item in results), default=0)}
 
 
 # --------------------------------------------------------------------------

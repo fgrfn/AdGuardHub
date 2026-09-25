@@ -18,6 +18,8 @@ from ..schemas import (
     FilterListUpdate,
     FilterSizesOut,
     ListSizeOut,
+    RefreshReportOut,
+    RefreshResultOut,
 )
 from ..services import filtersizes
 from ..services.sync import schedule_sync
@@ -54,11 +56,13 @@ async def list_sizes(user: CurrentUser) -> FilterSizesOut:
                 kind=item.kind,
                 rules_count=item.rules_count,
                 agreed=item.agreed,
+                last_updated=item.last_updated or None,
                 per_instance=[
                     {
                         "instance_id": entry.instance_id,
                         "instance_name": entry.instance_name,
                         "rules_count": entry.rules_count,
+                        "last_updated": entry.last_updated or None,
                     }
                     for entry in item.per_instance
                 ],
@@ -68,6 +72,31 @@ async def list_sizes(user: CurrentUser) -> FilterSizesOut:
         total_rules=sizes.total_rules,
         instances_reporting=sizes.instances_reporting,
         instances_total=sizes.instances_total,
+    )
+
+
+@router.post("/refresh", response_model=RefreshReportOut)
+async def refresh_lists(user: CurrentUser) -> RefreshReportOut:
+    """Ask every node to re-download its subscriptions now.
+
+    The hub cannot do this itself — it holds URLs, not contents — so the button
+    is a fan-out, and the answer says what each node managed rather than one
+    number that hides an unreachable one. The headline is the largest a single
+    node updated, not the sum: these are one set of subscriptions replicated
+    everywhere, so adding the nodes together would count the same list twice.
+    """
+    results = await filtersizes.refresh_all()
+    return RefreshReportOut(
+        instances=[
+            RefreshResultOut(
+                instance_id=item.instance_id,
+                instance_name=item.instance_name,
+                updated=item.updated,
+                error=item.error,
+            )
+            for item in results
+        ],
+        updated=max((item.updated for item in results), default=0),
     )
 
 

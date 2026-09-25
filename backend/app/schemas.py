@@ -287,6 +287,8 @@ class ListSizeInstanceOut(BaseModel):
     instance_id: int
     instance_name: str
     rules_count: int
+    #: When this node last downloaded the list. Empty when it never has.
+    last_updated: UtcDatetime | None = None
 
 
 class ListSizeOut(BaseModel):
@@ -295,6 +297,11 @@ class ListSizeOut(BaseModel):
     rules_count: int
     agreed: bool
     per_instance: list[ListSizeInstanceOut]
+    #: The most recent download any node reports. ``None`` when no node has one,
+    #: which is the answer worth having: AdGuard keeps a subscription it cannot
+    #: fetch rather than dropping it, so a list that never arrived is invisible
+    #: until something says when it last did.
+    last_updated: UtcDatetime | None = None
 
 
 class FilterSizesOut(BaseModel):
@@ -304,6 +311,20 @@ class FilterSizesOut(BaseModel):
     total_rules: int
     instances_reporting: int
     instances_total: int
+
+
+class RefreshResultOut(BaseModel):
+    instance_id: int
+    instance_name: str
+    updated: int
+    error: str
+
+
+class RefreshReportOut(BaseModel):
+    """What each node did when told to re-download its subscriptions."""
+
+    instances: list[RefreshResultOut]
+    updated: int
 
 
 # -- DNS settings ----------------------------------------------------------

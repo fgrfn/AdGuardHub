@@ -42,6 +42,11 @@ class RemoteFilterList:
     #: different ids on two nodes. Like ``rules_count`` it is never pushed and
     #: never compared — it belongs to the node, not to the subscription.
     remote_id: int = 0
+    #: When the node last downloaded this list, as the node reports it. Empty
+    #: when it never has — AdGuard keeps a subscription it cannot fetch rather
+    #: than dropping it, so a broken list does not disappear, it goes quietly
+    #: stale. Read-only and per node for the same reasons as the two above.
+    last_updated: str = ""
 
 
 @dataclass(slots=True)
@@ -116,6 +121,20 @@ class DnsAdapter(ABC):
     @abstractmethod
     async def push_filter_lists(self, lists: list[RemoteFilterList]) -> None:
         """Make the backend's subscriptions match ``lists`` exactly."""
+
+    async def refresh_filter_lists(self, *, allowlists: bool = False) -> int:
+        """Ask the backend to re-download its subscriptions now. Returns how many changed.
+
+        Not part of replication and never called by a push or a reconciliation
+        pass: the hub owns which lists a node carries, and the node owns their
+        contents. This is the operator saying "go and look" ahead of the node's
+        own schedule, which is the one thing about a subscription's freshness the
+        hub can do from here.
+
+        Default ``0`` rather than an error: a backend that cannot be asked has
+        nothing to refresh, which is not a failure to report.
+        """
+        return 0
 
     @abstractmethod
     async def query_log(self, limit: int) -> list[QueryLogEntry]:

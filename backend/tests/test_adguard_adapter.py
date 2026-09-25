@@ -829,3 +829,95 @@ async def test_a_subscription_keeps_the_id_its_node_gave_it() -> None:
 
     assert lists[0].remote_id == 202
     assert lists[0].rules_count == 400000
+
+
+async def test_when_a_list_was_last_downloaded_is_read() -> None:
+    """It comes back in the payload the sizes already come from, and was ignored.
+
+    AdGuard keeps a subscription it cannot download rather than dropping it, so a
+    URL that has rotted never disappears from a node — it stops changing, and
+    nothing said when it last did.
+    """
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "filters": [
+                    {
+                        "url": "https://example.com/block.txt",
+                        "name": "Block",
+                        "enabled": True,
+                        "id": 1,
+                        "last_updated": "2026-09-24T22:00:00Z",
+                    }
+                ],
+                "whitelist_filters": [],
+            },
+        )
+
+    adapter = make_adapter(login_ok(handler))
+
+    lists = await adapter.pull_filter_lists()
+    assert lists[0].last_updated == "2026-09-24T22:00:00Z"
+
+
+async def test_gos_zero_time_reads_as_never_downloaded() -> None:
+    """AdGuard sends Go's zero time for a list it has never managed to fetch.
+
+    Passed through it would put the year 1 in the interface — and, worse, make
+    "never arrived" look like an answer rather than the warning it is. An older
+    build omitting the field entirely means the same thing.
+    """
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "filters": [
+                    {
+                        "url": "https://example.com/never.txt",
+                        "name": "Never",
+                        "enabled": True,
+                        "id": 1,
+                        "last_updated": "0001-01-01T00:00:00Z",
+                    },
+                    {
+                        "url": "https://example.com/old-build.txt",
+                        "name": "Old build",
+                        "enabled": True,
+                        "id": 2,
+                    },
+                ],
+                "whitelist_filters": [],
+            },
+        )
+
+    adapter = make_adapter(login_ok(handler))
+
+    assert [item.last_updated for item in await adapter.pull_filter_lists()] == ["", ""]
+
+
+async def test_refresh_asks_the_node_to_download_now() -> None:
+    """The kinds are separate calls in AdGuard's API, and the node needs its time.
+
+    This makes AdGuard fetch and parse every list it holds before it answers —
+    the same work, and the same minutes, that adding one large list costs, which
+    is why it gets the same generous timeout rather than the configured one.
+    """
+    seen: list[object] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/control/filtering/refresh":
+            import json
+
+            seen.append((json.loads(request.content), request.extensions.get("timeout")))
+            return httpx.Response(200, json={"updated": 3})
+        return httpx.Response(200, json={})
+
+    adapter = make_adapter(login_ok(handler))
+
+    assert await adapter.refresh_filter_lists() == 3
+    assert await adapter.refresh_filter_lists(allowlists=True) == 3
+    assert [body["whitelist"] for body, _ in seen] == [False, True]
+    assert all(timeout["read"] == LIST_FETCH_TIMEOUT for _, timeout in seen)

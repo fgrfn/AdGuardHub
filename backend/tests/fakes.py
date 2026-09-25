@@ -37,6 +37,10 @@ class FakeInstanceState:
         self.push_calls = 0
         self.unsupported_sections: set[str] = set()
         self.stats: dict[str, Any] = {}
+        # Which kinds this node was asked to re-download, in order, and how many
+        # lists it reports as changed per call.
+        self.refresh_calls: list[bool] = []
+        self.refresh_updates = 0
         # How often the node was actually asked — the cache in front of the
         # aggregation is only worth having if this stops climbing.
         self.stats_calls = 0
@@ -121,6 +125,11 @@ class FakeAdapter(DnsAdapter):
             for item in lists
         ]
         self.state.push_calls += 1
+
+    async def refresh_filter_lists(self, *, allowlists: bool = False) -> int:
+        self._guard()
+        self.state.refresh_calls.append(allowlists)
+        return self.state.refresh_updates
 
     def supported_sections(self) -> tuple[str, ...]:
         return SECTION_NAMES

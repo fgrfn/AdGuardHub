@@ -51,6 +51,9 @@ class InstanceCount:
     instance_id: int
     instance_name: str
     rules_count: int
+    #: When this node last downloaded the list, as the node reports it. Empty
+    #: when it never has.
+    last_updated: str = ""
 
 
 @dataclass(slots=True)
@@ -59,6 +62,12 @@ class ListSize:
     kind: str
     rules_count: int
     per_instance: list[InstanceCount] = field(default_factory=list)
+    #: The most recent download any node reports, which is the answer to "is this
+    #: list current". Empty when no node has ever fetched it — which is the
+    #: interesting case, because AdGuard keeps a subscription it cannot download
+    #: rather than dropping it, so a list that has never arrived looks exactly
+    #: like one that has, until somebody reads this.
+    last_updated: str = ""
 
     @property
     def agreed(self) -> bool:
@@ -114,7 +123,7 @@ async def collect() -> FilterSizes:
             if key not in known:
                 continue
             counts.setdefault(key, []).append(
-                InstanceCount(instance.id, instance.name, item.rules_count)
+                InstanceCount(instance.id, instance.name, item.rules_count, item.last_updated)
             )
 
     sizes = [
@@ -125,6 +134,15 @@ async def collect() -> FilterSizes:
                 (entry.rules_count for entry in counts.get((kind, url), [])), default=0
             ),
             per_instance=counts.get((kind, url), []),
+            # Lexicographic max over ISO-8601 timestamps, which orders them
+            # correctly as long as they carry the same offset — AdGuard sends
+            # every one of these in UTC. The newest for the same reason the
+            # largest count is taken: a node that has not fetched the list yet
+            # says nothing, and a stale copy is older than a fresh one, so the
+            # maximum is the most recent state any node has actually reached.
+            last_updated=max(
+                (entry.last_updated for entry in counts.get((kind, url), [])), default=""
+            ),
         )
         for kind, url in known
     ]
@@ -162,3 +180,62 @@ def invalidate() -> None:
     """Drop the held result, so the next read reflects a changed subscription list."""
     global _cache
     _cache = None
+
+
+@dataclass(slots=True)
+class RefreshResult:
+    """What one node did when asked to re-download its subscriptions."""
+
+    instance_id: int
+    instance_name: str
+    updated: int = 0
+    error: str = ""
+
+
+async def refresh_all() -> list[RefreshResult]:
+    """Tell every reachable node to fetch its subscriptions now.
+
+    The hub cannot refresh a list itself — it holds URLs, never contents (spec
+    §12) — so "check for updates" means asking each node to do it. Which is why
+    this lives here rather than looking like replication: nothing is pushed,
+    nothing is compared, and the hub's own state does not change.
+
+    Best effort across the fleet, like every other fan-out (spec §6): a node that
+    refuses is named and the rest still go. Each is asked for both kinds, because
+    AdGuard refreshes blocklists and allowlists through separate calls and an
+    allowlist that never updates is the harder fault to notice.
+
+    A node held in maintenance is skipped. Maintenance means "leave this one
+    alone", and a refresh is the hub reaching into it.
+    """
+    async with session_scope() as session:
+        instances = list(
+            (
+                await session.execute(
+                    select(Instance).where(
+                        Instance.enabled.is_(True), Instance.maintenance.is_(False)
+                    )
+                )
+            ).scalars().all()
+        )
+
+    crypto = get_crypto()
+    results: list[RefreshResult] = []
+    for instance in instances:
+        adapter = build_adapter(instance, crypto)
+        result = RefreshResult(instance.id, instance.name)
+        try:
+            for allowlists in (False, True):
+                result.updated += await adapter.refresh_filter_lists(allowlists=allowlists)
+        except (AdapterError, ValueError) as exc:
+            result.error = str(exc)
+            logger.warning("Could not refresh the lists on %s: %s", instance.name, exc)
+        finally:
+            await adapter.aclose()
+        results.append(result)
+
+    if any(not item.error for item in results):
+        # The sizes and the last-updated times just changed on at least one node,
+        # and the whole point of pressing this is to see that.
+        invalidate()
+    return results
