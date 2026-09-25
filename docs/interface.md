@@ -43,6 +43,18 @@ The aggregated query log. Every node's queries in one stream, newest first, with
 answered in its own column; a row opens onto the rule that matched, and allowing or blocking
 from here writes one rule that reaches every node at once.
 
+Four filters narrow it, and two of them are questions the log could not be asked before.
+*Blocked* is now one of several responses rather than a checkbox, because AdGuard sends a reason
+and a boolean cannot hold it: **Allowed by a rule** is a query one of *your own* allowances let
+through, which is not blocked and is also not "not filtered" — it used to read exactly like an
+ordinary lookup, so whether your allow rules were firing was not askable on the page they are
+written from. **Any list** narrows to the blocks one subscription made, including AdGuard's own
+modules, which name themselves there; the options are the lists the buffered entries actually
+cite, so nothing is offered that would come back empty. The search box covers the rule and the
+list name as well as the domain and the client — it had offered "a rule" and searched neither, so
+`@@` found nothing. All four are applied by the hub over the whole buffer, not by the browser
+over the rows it happens to be holding.
+
 <img src="./screenshots/querylog.png" width="900" alt="The query log with one row expanded, showing the matched rule and the allow action" />
 
 The central rule set, in native AdGuard syntax. Three ways in — a custom rule, a domain to

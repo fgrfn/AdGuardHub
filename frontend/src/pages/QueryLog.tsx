@@ -27,6 +27,26 @@ const DURATIONS: { minutes: number; label: string }[] = [
 ]
 
 /**
+ * What a row can be filtered down to, beyond "blocked or not".
+ *
+ * `blocked` used to be the only choice, and it is a boolean over a field that is
+ * not one — the node sends a reason. Collapsing it hid the answer this hub exists
+ * to give: a query let through by one of your own allow rules is *not blocked*,
+ * so it read in every column exactly like a query nothing touched, and "are my
+ * allowances actually firing" could not be asked.
+ *
+ * `processed` is the remainder on purpose rather than "everything else": not
+ * filtered and not allowed by a rule, i.e. the queries the hub's configuration
+ * had no opinion about.
+ */
+const STATUSES: { value: string; label: string }[] = [
+  { value: '', label: 'Any response' },
+  { value: 'blocked', label: 'Blocked' },
+  { value: 'allowlisted', label: 'Allowed by a rule' },
+  { value: 'processed', label: 'Not filtered' },
+]
+
+/**
  * Identity of a row, for remembering which one is expanded.
  *
  * Deliberately free of the array index: new entries arrive over SSE every few
@@ -46,31 +66,34 @@ export default function QueryLog() {
   const [rows, setRows] = useState<QueryLogEntry[]>([])
   const [search, setSearch] = useState('')
   const [instance, setInstance] = useState('')
-  const [blockedOnly, setBlockedOnly] = useState(false)
+  const [status, setStatus] = useState('')
+  const [filterList, setFilterList] = useState('')
+  const [lists, setLists] = useState<string[]>([])
   const [live, setLive] = useState(true)
   const [open, setOpen] = useState('')
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const filters = useRef({ search, instance, blockedOnly, live })
-  filters.current = { search, instance, blockedOnly, live }
+  const filters = useRef({ search, instance, status, filterList, live })
+  filters.current = { search, instance, status, filterList, live }
 
   const load = useCallback(async () => {
     try {
-      setRows(
-        await api.queryLog({
-          limit: MAX_ROWS,
-          search,
-          instance,
-          blocked_only: blockedOnly,
-        }),
-      )
+      const [entries, named] = await Promise.all([
+        api.queryLog({ limit: MAX_ROWS, search, instance, status, filter_list: filterList }),
+        // Read alongside the rows, because the options come from the buffer: a
+        // list nothing has cited yet is not worth offering as a filter that
+        // would come back empty.
+        api.queryLogLists(),
+      ])
+      setRows(entries)
+      setLists(named.lists)
       setError('')
     } catch (caught) {
       setError(errorMessage(caught))
     }
-  }, [search, instance, blockedOnly])
+  }, [search, instance, status, filterList])
 
   useEffect(() => {
     void load()
@@ -147,7 +170,7 @@ export default function QueryLog() {
             <input
               value={search}
               aria-label={t('Search the query log')}
-              placeholder={t('Search a domain, a client or a rule')}
+              placeholder={t('Search a domain, a client, a rule or a list')}
               onChange={(event) => setSearch(event.target.value)}
             />
           </div>
@@ -164,14 +187,40 @@ export default function QueryLog() {
               </option>
             ))}
           </select>
-          <label className="checkbox" style={{ marginBottom: 0, flex: '0 0 auto' }}>
-            <input
-              type="checkbox"
-              checked={blockedOnly}
-              onChange={(event) => setBlockedOnly(event.target.checked)}
-            />
-            {t('Blocked only')}
-          </label>
+          <select
+            aria-label={t('Filter by response')}
+            style={{ flex: '0 0 190px' }}
+            value={status}
+            onChange={(event) => setStatus(event.target.value)}
+          >
+            {STATUSES.map((option) => (
+              <option key={option.value} value={option.value}>
+                {t(option.label)}
+              </option>
+            ))}
+          </select>
+          {/* Hidden until something has named a list, since a lone "Any list" is a
+              control that does nothing. An active choice keeps it on screen even
+              once those rows age out of the buffer — a filter still narrowing the
+              view must stay visible and undoable. */}
+          {lists.length || filterList ? (
+            <select
+              aria-label={t('Filter by list')}
+              style={{ flex: '0 0 200px' }}
+              value={filterList}
+              onChange={(event) => setFilterList(event.target.value)}
+            >
+              <option value="">{t('Any list')}</option>
+              {(lists.includes(filterList) || !filterList
+                ? lists
+                : [filterList, ...lists]
+              ).map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          ) : null}
           <span style={{ marginLeft: 'auto', color: 'var(--dim)', fontSize: 12.5 }}>
             {rows.length === 1 ? t('1 entry') : t('{count} entries', { count: rows.length })}
           </span>
