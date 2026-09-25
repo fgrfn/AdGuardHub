@@ -17,6 +17,10 @@ class FakeInstanceState:
         self.sections: dict[str, dict[str, Any]] = {}
         self.query_log: list[QueryLogEntry] = []
         self.offline = False
+        # Why it is unreachable, when the reason matters. A node that times out and
+        # then starts refusing the credentials is two different faults, and the hub
+        # decides whether to report a repeat failure by comparing the reason.
+        self.offline_error = ""
         # Rules this node accepts and then does not keep — a 2xx followed by
         # nothing stored. Real AdGuard does this; a double that always stores
         # what it is given cannot express the fault at all, which is why the
@@ -77,7 +81,7 @@ class FakeAdapter(DnsAdapter):
 
     def _guard(self) -> None:
         if self.state.offline:
-            raise AdapterError(f"{self.base_url} is unreachable")
+            raise AdapterError(self.state.offline_error or f"{self.base_url} is unreachable")
 
     def _refuse_push(self, kind: str) -> None:
         if kind in self.state.push_errors:
