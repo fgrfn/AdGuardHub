@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from sqlalchemy import select
 
@@ -22,6 +24,11 @@ from ..security import check_password, make_password_hash
 from ..services import hubsettings
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+# Setup is a one-shot, but the existence check and insert use separate queries.
+# Serialise that short window so two first-run requests cannot both observe an
+# empty users table and create two admins in this deliberately single-user hub.
+_setup_lock = asyncio.Lock()
 
 
 def _served_over_tls(request: Request) -> bool:
@@ -81,11 +88,15 @@ async def setup(
     payload: SetupRequest, request: Request, response: Response, session: SessionDep
 ) -> AuthState:
     """Create the admin account. Only available while no account exists."""
-    if await admin_exists(session):
-        raise HTTPException(status.HTTP_409_CONFLICT, "An admin account already exists")
-    user = User(username=payload.username, password_hash=await make_password_hash(payload.password))
-    session.add(user)
-    await session.commit()
+    async with _setup_lock:
+        if await admin_exists(session):
+            raise HTTPException(status.HTTP_409_CONFLICT, "An admin account already exists")
+        user = User(
+            username=payload.username,
+            password_hash=await make_password_hash(payload.password),
+        )
+        session.add(user)
+        await session.commit()
     _set_cookie(request, response, user)
     return AuthState(authenticated=True, username=user.username, setup_required=False)
 
