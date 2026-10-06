@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
+
 import httpx
+from sqlalchemy import func, select
 
 
 async def test_setup_required_before_first_admin(client: httpx.AsyncClient) -> None:
@@ -38,6 +41,28 @@ async def test_setup_then_login_logout(client: httpx.AsyncClient) -> None:
     )
     assert good.status_code == 200
     assert (await client.get("/api/rules")).status_code == 200
+
+
+async def test_only_one_concurrent_setup_can_create_the_admin(
+    client: httpx.AsyncClient,
+) -> None:
+    """The single-admin promise must also hold for overlapping first requests."""
+    from app.db import session_scope
+    from app.models import User
+
+    async with await second_browser() as other:
+        first, second = await asyncio.gather(
+            client.post(
+                "/api/auth/setup", json={"username": "admin", "password": "supersecret"}
+            ),
+            other.post(
+                "/api/auth/setup", json={"username": "mallory", "password": "anothersecret"}
+            ),
+        )
+
+    assert sorted((first.status_code, second.status_code)) == [200, 409]
+    async with session_scope() as session:
+        assert await session.scalar(select(func.count()).select_from(User)) == 1
 
 
 async def test_password_change(auth_client: httpx.AsyncClient) -> None:
