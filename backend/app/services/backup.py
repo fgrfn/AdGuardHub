@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..adapters import ADAPTERS
 from ..models import Instance, ListKind, RuleKind, RuleOrigin
+from ..schemas import normalise_instance_url
 from .config import build_snapshot, restore_snapshot
 
 FORMAT = "adguardhub-backup"
@@ -132,11 +133,13 @@ def validate(payload: Any) -> dict[str, Any]:
         for key in ("name", "base_url", "username", "adapter"):
             _expect_string(entry, key, what)
         base_url = str(entry.get("base_url") or "").strip()
-        if base_url and not base_url.startswith(("http://", "https://")):
-            raise BackupError(
-                f"The backup's {what} has an address that is not http:// or https://: "
-                f"{base_url!r}."
-            )
+        if base_url:
+            try:
+                normalise_instance_url(base_url)
+            except ValueError as exc:
+                raise BackupError(
+                    f"The backup's {what} has an invalid address: {base_url!r}."
+                ) from exc
         adapter = entry.get("adapter")
         if adapter is not None and adapter not in ADAPTERS:
             raise BackupError(

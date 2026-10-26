@@ -104,9 +104,23 @@ async def test_rule_filters(auth_client: httpx.AsyncClient) -> None:
     assert len((await auth_client.get("/api/rules?search=ads")).json()) == 1
 
 
-async def test_invalid_instance_url_is_rejected(auth_client: httpx.AsyncClient) -> None:
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "adguard.local",
+        "http://",
+        "http://admin:secret@adguard.local",
+        "http://adguard.local?target=other",
+        "http://adguard.local#fragment",
+        "http://adguard.local:99999",
+        "http://adguard.local:\\control",
+    ],
+)
+async def test_invalid_instance_url_is_rejected(
+    auth_client: httpx.AsyncClient, base_url: str
+) -> None:
     response = await auth_client.post(
-        "/api/instances", json={"name": "bad", "base_url": "adguard.local"}
+        "/api/instances", json={"name": "bad", "base_url": base_url}
     )
     assert response.status_code == 422
 

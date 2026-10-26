@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator
 
@@ -34,6 +35,28 @@ def _stamp_utc(value: datetime) -> datetime:
 
 #: A timestamp that leaves the hub saying which zone it is in.
 UtcDatetime = Annotated[datetime, AfterValidator(_stamp_utc)]
+
+
+def normalise_instance_url(value: str) -> str:
+    """Return a safe HTTP(S) base URL or raise a validation error."""
+    value = value.strip().rstrip("/")
+    if any(character.isspace() or ord(character) < 0x20 for character in value):
+        raise ValueError("base_url must not contain whitespace or control characters")
+    try:
+        parsed = urlsplit(value)
+        # Accessing port also validates malformed and out-of-range ports.
+        _ = parsed.port
+    except ValueError as exc:
+        raise ValueError("base_url is not a valid URL") from exc
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("base_url must be a complete http:// or https:// URL")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("base_url must not contain credentials")
+    if parsed.query or parsed.fragment:
+        raise ValueError("base_url must not contain a query string or fragment")
+    if parsed.netloc.endswith(":"):
+        raise ValueError("base_url is not a valid URL")
+    return value
 
 
 class ORMModel(BaseModel):
@@ -89,10 +112,7 @@ class InstanceCreate(BaseModel):
     @field_validator("base_url")
     @classmethod
     def _check_url(cls, value: str) -> str:
-        value = value.strip().rstrip("/")
-        if not value.startswith(("http://", "https://")):
-            raise ValueError("base_url must start with http:// or https://")
-        return value
+        return normalise_instance_url(value)
 
 
 class ConnectionTest(BaseModel):
@@ -109,10 +129,7 @@ class ConnectionTest(BaseModel):
     @field_validator("base_url")
     @classmethod
     def _check_url(cls, value: str) -> str:
-        value = value.strip().rstrip("/")
-        if not value.startswith(("http://", "https://")):
-            raise ValueError("base_url must start with http:// or https://")
-        return value
+        return normalise_instance_url(value)
 
 
 class ConnectionResult(BaseModel):
@@ -136,10 +153,7 @@ class InstanceUpdate(BaseModel):
     def _check_url(cls, value: str | None) -> str | None:
         if value is None:
             return None
-        value = value.strip().rstrip("/")
-        if not value.startswith(("http://", "https://")):
-            raise ValueError("base_url must start with http:// or https://")
-        return value
+        return normalise_instance_url(value)
 
 
 class InstanceOut(ORMModel):
