@@ -22,6 +22,32 @@ router = APIRouter(prefix="/api/backup", tags=["backup"])
 MAX_UPLOAD_BYTES = 32 * 1024 * 1024
 
 
+async def _read_limited_body(request: Request) -> bytes:
+    """Read a request without buffering more than the documented upload limit."""
+    declared = request.headers.get("content-length")
+    if declared:
+        try:
+            if int(declared) > MAX_UPLOAD_BYTES:
+                raise HTTPException(
+                    status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    "That file is too large to be an AdGuardHub backup.",
+                )
+        except ValueError:
+            # An intermediary may omit or mangle the advisory header. The stream
+            # limit below remains authoritative in either case.
+            pass
+
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                "That file is too large to be an AdGuardHub backup.",
+            )
+        body.extend(chunk)
+    return bytes(body)
+
+
 @router.get("")
 async def download(_: CurrentUser, session: SessionDep) -> JSONResponse:
     """The whole central configuration, as one JSON file."""
@@ -49,12 +75,7 @@ async def restore(
     it as text, and this keeps both the size check and the parse error in our
     hands instead of behind a framework's default message.
     """
-    raw = await request.body()
-    if len(raw) > MAX_UPLOAD_BYTES:
-        raise HTTPException(
-            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            "That file is too large to be an AdGuardHub backup.",
-        )
+    raw = await _read_limited_body(request)
     try:
         payload = json.loads(raw)
     except ValueError as exc:
