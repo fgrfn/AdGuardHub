@@ -194,7 +194,11 @@ def _backup(snapshot: dict, instances: list | None = None) -> str:
         (_backup({}, instances=["node"]), "instance 1 is damaged"),
         (
             _backup({}, instances=[{"name": "n", "base_url": "ftp://node.example"}]),
-            "not http:// or https://",
+            "invalid address",
+        ),
+        (
+            _backup({}, instances=[{"name": "n", "base_url": "http://user:pw@node.example"}]),
+            "invalid address",
         ),
         (
             _backup({}, instances=[{"name": "n", "base_url": "http://n", "adapter": "pihole"}]),
