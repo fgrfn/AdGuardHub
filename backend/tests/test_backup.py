@@ -220,6 +220,25 @@ async def test_a_bad_file_is_refused_before_anything_is_deleted(
     assert (await auth_client.get("/api/rules")).json() == before
 
 
+async def test_an_oversized_restore_is_rejected_before_parsing(
+    auth_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("app.api.backup.MAX_UPLOAD_BYTES", 64)
+
+    async def chunks():
+        yield b"{" + (b"x" * 32)
+        yield b"x" * 32
+
+    response = await auth_client.post(
+        "/api/backup/restore",
+        content=chunks(),
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 413
+    assert "too large" in response.json()["detail"]
+
+
 async def test_the_restore_itself_can_be_rolled_back(
     auth_client: httpx.AsyncClient,
 ) -> None:
