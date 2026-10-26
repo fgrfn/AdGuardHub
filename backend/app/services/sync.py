@@ -437,9 +437,37 @@ _background_tasks: set[asyncio.Task[None]] = set()
 
 
 async def drain_background() -> None:
-    """Wait for every in-flight ``schedule_sync`` task. Used on shutdown and in tests."""
-    while _background_tasks:
-        await asyncio.gather(*list(_background_tasks), return_exceptions=True)
+    """Wait for every in-flight ``schedule_sync`` task.
+
+    Called by the tests, which need a push to have landed before they look. The
+    docstring used to say "and on shutdown" as well; nothing in the application
+    calls it there, and claiming otherwise is worse than the gap itself.
+
+    Finished tasks are dropped **here** rather than only by the done callback that
+    ``schedule_sync`` attaches. That callback is scheduled on the loop which
+    created the task, so a loop torn down in the moment the task finishes never
+    runs it — and since this set is process-global, the finished task then stays
+    in it for the rest of the process.
+
+    The old condition was ``while _background_tasks``, which that leftover never
+    clears: ``gather`` returns at once because the task is already done, the loop
+    goes round, and it spins for ever. It cost a CI run two hundred seconds of
+    silence, in a test whose own work had completed — and nothing could break it,
+    not even an ``asyncio.wait_for`` around the call, because the spin never
+    yields long enough for a timer to fire. Only the suite's thread-based timeout
+    could end it.
+
+    Which is why the emptiness of the set is no longer the loop's condition: what
+    is actually being waited for is the tasks that have *not* finished.
+    """
+    while True:
+        pending = [task for task in _background_tasks if not task.done()]
+        # No await between reading and rewriting, so nothing can be scheduled
+        # into the set in between and be dropped unawaited.
+        _background_tasks.intersection_update(pending)
+        if not pending:
+            return
+        await asyncio.gather(*pending, return_exceptions=True)
 
 
 # --------------------------------------------------------------------------
