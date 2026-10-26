@@ -79,6 +79,34 @@ async def test_allow_is_idempotent_across_entry_points(auth_client: httpx.AsyncC
     assert len((await auth_client.get("/api/rules")).json()) == 1
 
 
+@pytest.mark.parametrize(
+    "domain",
+    [
+        "https://example.com",
+        "example.com^$important",
+        "example..com",
+        "-example.com",
+        "example.com/path",
+        "example.com\\other",
+        "example.com\n||injected.example^",
+    ],
+)
+async def test_domain_actions_reject_invalid_rule_input(
+    auth_client: httpx.AsyncClient, domain: str
+) -> None:
+    response = await auth_client.post("/api/rules/allow", json={"domain": domain})
+    assert response.status_code == 422
+    assert (await auth_client.get("/api/rules")).json() == []
+
+
+async def test_domain_actions_normalise_international_names(
+    auth_client: httpx.AsyncClient,
+) -> None:
+    response = await auth_client.post("/api/rules/allow", json={"domain": "Bücher.Example."})
+    assert response.status_code == 200
+    assert response.json()["text"] == "@@||xn--bcher-kva.example^"
+
+
 async def test_bulk_import_keeps_comments_and_skips_blanks(
     auth_client: httpx.AsyncClient,
 ) -> None:
