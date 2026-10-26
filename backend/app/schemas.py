@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
@@ -241,9 +242,23 @@ class DomainRuleRequest(BaseModel):
     @classmethod
     def _clean(cls, value: str) -> str:
         value = value.strip().lower().rstrip(".")
-        if not value or " " in value:
+        if not value:
             raise ValueError("Not a valid domain")
-        return value
+        try:
+            labels = [label.encode("idna").decode("ascii") for label in value.split(".")]
+        except UnicodeError as exc:
+            raise ValueError("Not a valid domain") from exc
+        if not labels or any(
+            not label
+            or len(label) > 63
+            or re.fullmatch(r"[a-z0-9_](?:[a-z0-9_-]*[a-z0-9_])?", label) is None
+            for label in labels
+        ):
+            raise ValueError("Not a valid domain")
+        normalised = ".".join(labels)
+        if len(normalised) > 253:
+            raise ValueError("Not a valid domain")
+        return normalised
 
 
 class BulkRulesRequest(BaseModel):
