@@ -179,6 +179,29 @@ async def test_invalid_instance_url_is_rejected(
     assert response.status_code == 422
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://",
+        "ftp://lists.example/list.txt",
+        "https://user:secret@lists.example/list.txt",
+        "https://lists.example:99999/list.txt",
+        "https://lists.example/list.txt#section",
+        "https://lists.example\\list.txt",
+        "https://lists.example/list.txt\nhttps://other.example/list.txt",
+    ],
+)
+async def test_invalid_subscription_url_is_rejected(
+    auth_client: httpx.AsyncClient, url: str
+) -> None:
+    response = await auth_client.post(
+        "/api/filter-lists", json={"name": "bad", "url": url}
+    )
+
+    assert response.status_code == 422
+    assert (await auth_client.get("/api/filter-lists")).json() == []
+
+
 async def test_notifier_crud_and_unknown_event_validation(
     auth_client: httpx.AsyncClient,
 ) -> None:

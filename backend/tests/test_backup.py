@@ -188,6 +188,10 @@ def _backup(snapshot: dict, instances: list | None = None) -> str:
         (_backup({"rules": [{"text": 42}]}), "rule 1 has a 'text' that is not text"),
         (_backup({"rules": [{"text": "||x^", "kind": "sideways"}]}), "expected one of"),
         (_backup({"filter_lists": [{"url": 5}]}), "subscription 1 has a 'url'"),
+        (
+            _backup({"filter_lists": [{"url": "https://user:secret@lists.example/list.txt"}]}),
+            "subscription 1 has an invalid URL",
+        ),
         (_backup({"filter_lists": [{"url": "https://x", "kind": "greylist"}]}), "expected one of"),
         (_backup({"sections": {"dns": []}}), "section 'dns' is damaged"),
         (_backup({"sections": {"dns": {"managed": True, "data": "x"}}}), "section 'dns'"),

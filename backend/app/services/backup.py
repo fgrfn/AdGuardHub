@@ -36,7 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..adapters import ADAPTERS
 from ..models import Instance, ListKind, RuleKind, RuleOrigin
-from ..schemas import normalise_instance_url
+from ..schemas import normalise_instance_url, normalise_subscription_url
 from .config import build_snapshot, restore_snapshot
 
 FORMAT = "adguardhub-backup"
@@ -121,6 +121,14 @@ def validate(payload: Any) -> dict[str, Any]:
         _expect_string(entry, "url", what)
         _expect_string(entry, "name", what)
         _expect_choice(entry, "kind", ListKind, what)
+        url = str(entry.get("url") or "").strip()
+        if url:
+            try:
+                normalise_subscription_url(url)
+            except ValueError as exc:
+                raise BackupError(
+                    f"The backup's {what} has an invalid URL: {url!r}."
+                ) from exc
     for name, entry in (snapshot.get("sections") or {}).items():
         what = f"section {name!r}"
         _expect_object(entry, what)
