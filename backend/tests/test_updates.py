@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import dataclasses
 import time
+from typing import Any
 
 import httpx
 import pytest
@@ -22,7 +23,7 @@ from app.services.updates import UpdateChecker, install_method
 class FakeTransport(httpx.AsyncBaseTransport):
     """Answers the one request the checker makes, and counts them."""
 
-    def __init__(self, *, status: int = 200, payload: dict | None = None, boom: bool = False):
+    def __init__(self, *, status: int = 200, payload: Any = None, boom: bool = False):
         self.status = status
         self.payload = payload if payload is not None else {}
         self.boom = boom
@@ -169,6 +170,19 @@ async def test_a_refusal_says_what_github_answered(fake_github) -> None:
     fake_github(status=403, payload={"message": "rate limited"})
     status = await UpdateChecker("v0.2.0").get(enabled=True)
     assert "403" in status.error
+
+
+@pytest.mark.parametrize("payload", [[RELEASE], {"tag_name": ["v0.9.0"]}])
+async def test_invalid_release_documents_are_reported_without_breaking_the_page(
+    fake_github, payload: Any
+) -> None:
+    fake_github(payload=payload)
+
+    status = await UpdateChecker("v0.2.0").get(enabled=True)
+
+    assert status.error == "GitHub returned an invalid response"
+    assert status.latest == ""
+    assert status.update_available is False
 
 
 async def test_switched_off_means_no_request_at_all(fake_github) -> None:

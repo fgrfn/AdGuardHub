@@ -146,7 +146,16 @@ class UpdateChecker:
             logger.debug("Update check failed: %s", caught)
             return self._blank("could not reach github.com", now)
 
-        latest = str(payload.get("tag_name") or "").strip()
+        if not isinstance(payload, dict):
+            logger.debug("Update check returned a non-object JSON document")
+            return self._blank("GitHub returned an invalid response", now)
+
+        tag_name = payload.get("tag_name")
+        if tag_name is not None and not isinstance(tag_name, str):
+            logger.debug("Update check returned a non-text tag_name")
+            return self._blank("GitHub returned an invalid response", now)
+
+        latest = (tag_name or "").strip()
         if not latest:
             return self._blank("", now)
 
