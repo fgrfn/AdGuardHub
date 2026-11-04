@@ -201,10 +201,20 @@ class ImportRequest(BaseModel):
 #: we are away", short enough that it is still recognisably temporary. Anything
 #: beyond that is a rule somebody means to keep, and should be written as one.
 MAX_EXPIRY_MINUTES = 7 * 24 * 60
+MAX_RULE_TEXT_LENGTH = 1000
+
+
+def _normalise_rule_text(value: str) -> str:
+    value = value.strip()
+    if not value:
+        raise ValueError("Rule text must not be empty")
+    if len(value) > MAX_RULE_TEXT_LENGTH:
+        raise ValueError(f"Rule text must not exceed {MAX_RULE_TEXT_LENGTH} characters")
+    return value
 
 
 class RuleCreate(BaseModel):
-    text: str = Field(min_length=1, max_length=1000)
+    text: str = Field(min_length=1, max_length=MAX_RULE_TEXT_LENGTH)
     origin: RuleOrigin = RuleOrigin.custom
     enabled: bool = True
     comment: str = ""
@@ -215,19 +225,21 @@ class RuleCreate(BaseModel):
     @field_validator("text")
     @classmethod
     def _strip(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("Rule text must not be empty")
-        return value
+        return _normalise_rule_text(value)
 
 
 class RuleUpdate(BaseModel):
-    text: str | None = Field(default=None, min_length=1, max_length=1000)
+    text: str | None = Field(default=None, min_length=1, max_length=MAX_RULE_TEXT_LENGTH)
     enabled: bool | None = None
     comment: str | None = None
     #: Set to change the countdown, or to 0 to make the rule permanent. Omitted
     #: leaves it as it is — the same rule every other field here follows.
     expires_in_minutes: int | None = Field(default=None, ge=0, le=MAX_EXPIRY_MINUTES)
+
+    @field_validator("text")
+    @classmethod
+    def _strip(cls, value: str | None) -> str | None:
+        return None if value is None else _normalise_rule_text(value)
 
 
 class RuleOut(ORMModel):
@@ -278,6 +290,14 @@ class DomainRuleRequest(BaseModel):
 class BulkRulesRequest(BaseModel):
     text: str = ""
     origin: RuleOrigin = RuleOrigin.custom
+
+    @field_validator("text")
+    @classmethod
+    def _check_lines(cls, value: str) -> str:
+        for line in value.splitlines():
+            if line.strip():
+                _normalise_rule_text(line)
+        return value
 
 
 # -- filter lists ----------------------------------------------------------

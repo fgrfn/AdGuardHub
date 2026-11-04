@@ -123,6 +123,32 @@ async def test_bulk_import_keeps_comments_and_skips_blanks(
     ]
 
 
+async def test_rule_update_rejects_whitespace_without_changing_the_rule(
+    auth_client: httpx.AsyncClient,
+) -> None:
+    created = await auth_client.post("/api/rules", json={"text": "||keep.example^"})
+
+    response = await auth_client.patch(
+        f"/api/rules/{created.json()['id']}", json={"text": "   "}
+    )
+
+    assert response.status_code == 422
+    assert [rule["text"] for rule in (await auth_client.get("/api/rules")).json()] == [
+        "||keep.example^"
+    ]
+
+
+async def test_bulk_import_rejects_a_rule_over_the_single_rule_limit(
+    auth_client: httpx.AsyncClient,
+) -> None:
+    response = await auth_client.post(
+        "/api/rules/bulk", json={"text": "x" * 1001}
+    )
+
+    assert response.status_code == 422
+    assert (await auth_client.get("/api/rules")).json() == []
+
+
 async def test_rule_filters(auth_client: httpx.AsyncClient) -> None:
     await auth_client.post("/api/rules", json={"text": "||ads.example.com^"})
     await auth_client.post("/api/rules/allow", json={"domain": "shop.example.com"})
