@@ -60,6 +60,35 @@ def normalise_instance_url(value: str) -> str:
     return value
 
 
+MAX_SUBSCRIPTION_URL_LENGTH = 1000
+
+
+def normalise_subscription_url(value: str) -> str:
+    """Return a complete HTTP(S) subscription URL or raise a validation error."""
+    value = value.strip()
+    if len(value) > MAX_SUBSCRIPTION_URL_LENGTH:
+        raise ValueError("Subscription URL is too long")
+    if any(character.isspace() or ord(character) < 0x20 for character in value):
+        raise ValueError("Subscription URL must not contain whitespace or control characters")
+    if "\\" in value:
+        raise ValueError("Subscription URL is not a valid URL")
+    try:
+        parsed = urlsplit(value)
+        # Reading the port rejects malformed and out-of-range values.
+        _ = parsed.port
+    except ValueError as exc:
+        raise ValueError("Subscription URL is not a valid URL") from exc
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("Subscription URL must be a complete http:// or https:// URL")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("Subscription URL must not contain credentials")
+    if parsed.fragment:
+        raise ValueError("Subscription URL must not contain a fragment")
+    if parsed.netloc.endswith(":"):
+        raise ValueError("Subscription URL is not a valid URL")
+    return value
+
+
 class ORMModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -285,17 +314,14 @@ class BulkRulesRequest(BaseModel):
 
 class FilterListCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    url: str = Field(min_length=1, max_length=1000)
+    url: str = Field(min_length=1, max_length=MAX_SUBSCRIPTION_URL_LENGTH)
     kind: ListKind = ListKind.blocklist
     enabled: bool = True
 
     @field_validator("url")
     @classmethod
     def _check_url(cls, value: str) -> str:
-        value = value.strip()
-        if not value.startswith(("http://", "https://")):
-            raise ValueError("Subscription URL must start with http:// or https://")
-        return value
+        return normalise_subscription_url(value)
 
 
 class FilterListUpdate(BaseModel):
